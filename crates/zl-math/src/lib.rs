@@ -26,6 +26,7 @@ mod tests {
         assert_eq!(a, 0.0);
         assert_eq!(b, 1.0);
         assert_eq!(c, 0.5);
+        assert_eq!(lerp(6.0, 2.0, 0.25), 5.0);
     }
     #[test]
     fn works_linear() {
