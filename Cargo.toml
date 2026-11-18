@@ -12,3 +12,4 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 glam = "0.34"
+num-complex = "0.4"
