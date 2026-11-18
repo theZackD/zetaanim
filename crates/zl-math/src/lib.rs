@@ -213,6 +213,77 @@ pub fn lingering(t: f64) -> f64 {
     (t / 0.8).min(1.0)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Easing {
+    Linear,
+    Smooth,
+    InSine,
+    OutSine,
+    InOutSine,
+    InQuad,
+    OutQuad,
+    InOutQuad,
+    InCubic,
+    OutCubic,
+    InOutCubic,
+    InExpo,
+    OutExpo,
+    InOutExpo,
+    InBack,
+    OutBack,
+    InOutBack,
+    InElastic,
+    OutElastic,
+    InOutElastic,
+    InBounce,
+    OutBounce,
+    InOutBounce,
+    ThereAndBack,
+    ThereAndBackPause { pause_ratio: f64 },
+    RushInto,
+    RushFrom,
+    DoubleSmooth,
+    Wiggle { wiggles: f64 },
+    Lingering,
+}
+
+impl Easing {
+    pub fn apply(&self, t: f64) -> f64 {
+        match self {
+            Easing::Smooth => smooth(t),
+            Easing::Linear => linear(t),
+            Easing::InSine => ease_in_sine(t),
+            Easing::OutSine => ease_out_sine(t),
+            Easing::InOutSine => ease_in_out_sine(t),
+            Easing::InQuad => ease_in_quad(t),
+            Easing::OutQuad => ease_out_quad(t),
+            Easing::InOutQuad => ease_in_out_quad(t),
+            Easing::InCubic => ease_in_cubic(t),
+            Easing::OutCubic => ease_out_cubic(t),
+            Easing::InOutCubic => ease_in_out_cubic(t),
+            Easing::InExpo => ease_in_expo(t),
+            Easing::OutExpo => ease_out_expo(t),
+            Easing::InOutExpo => ease_in_out_expo(t),
+            Easing::InBack => ease_in_back(t),
+            Easing::OutBack => ease_out_back(t),
+            Easing::InOutBack => ease_in_out_back(t),
+            Easing::InElastic => ease_in_elastic(t),
+            Easing::OutElastic => ease_out_elastic(t),
+            Easing::InOutElastic => ease_in_out_elastic(t),
+            Easing::InBounce => ease_in_bounce(t),
+            Easing::OutBounce => ease_out_bounce(t),
+            Easing::InOutBounce => ease_in_out_bounce(t),
+            Easing::ThereAndBack => there_and_back(t),
+            Easing::ThereAndBackPause { pause_ratio } => there_and_back_with_pause(t, *pause_ratio),
+            Easing::RushInto => rush_into(t),
+            Easing::RushFrom => rush_from(t),
+            Easing::DoubleSmooth => double_smooth(t),
+            Easing::Wiggle { wiggles } => wiggle(t, *wiggles),
+            Easing::Lingering => lingering(t),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,5 +476,59 @@ mod tests {
         assert!(approx_eq(lingering(0.4), 0.5));
         assert_eq!(lingering(0.8), 1.0);
         assert_eq!(lingering(1.0), 1.0);
+    }
+
+    #[test]
+    fn easing_apply_wiggle() {
+        assert_eq!(Easing::Wiggle { wiggles: 3.6 }.apply(0.4), wiggle(0.4, 3.6))
+    }
+
+    #[test]
+    fn easing_apply_with_pause() {
+        for t in samples() {
+            assert_eq!(
+                Easing::ThereAndBackPause { pause_ratio: 0.27 }.apply(t),
+                there_and_back_with_pause(t, 0.27)
+            );
+        }
+    }
+
+    #[test]
+    fn easing_apply_matches_free_functions() {
+        let pairs: [(Easing, Curve); 28] = [
+            (Easing::Linear, linear),
+            (Easing::Smooth, smooth),
+            (Easing::InSine, ease_in_sine),
+            (Easing::OutSine, ease_out_sine),
+            (Easing::InOutSine, ease_in_out_sine),
+            (Easing::InQuad, ease_in_quad),
+            (Easing::OutQuad, ease_out_quad),
+            (Easing::InOutQuad, ease_in_out_quad),
+            (Easing::InCubic, ease_in_cubic),
+            (Easing::OutCubic, ease_out_cubic),
+            (Easing::InOutCubic, ease_in_out_cubic),
+            (Easing::InExpo, ease_in_expo),
+            (Easing::OutExpo, ease_out_expo),
+            (Easing::InOutExpo, ease_in_out_expo),
+            (Easing::InBack, ease_in_back),
+            (Easing::OutBack, ease_out_back),
+            (Easing::InOutBack, ease_in_out_back),
+            (Easing::InElastic, ease_in_elastic),
+            (Easing::OutElastic, ease_out_elastic),
+            (Easing::InOutElastic, ease_in_out_elastic),
+            (Easing::InBounce, ease_in_bounce),
+            (Easing::OutBounce, ease_out_bounce),
+            (Easing::InOutBounce, ease_in_out_bounce),
+            (Easing::ThereAndBack, there_and_back),
+            (Easing::RushInto, rush_into),
+            (Easing::RushFrom, rush_from),
+            (Easing::DoubleSmooth, double_smooth),
+            (Easing::Lingering, lingering),
+        ];
+        for (easing, f) in pairs {
+            for t in samples() {
+                assert_eq!(easing.apply(t), f(t), "{easing:?} at t = {t}");
+            }
+        }
     }
 }
