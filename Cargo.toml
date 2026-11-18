@@ -6,5 +6,9 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 
+
 [workspace]
 members = ["crates/*"]
+
+[workspace.dependencies]
+glam = "0.34"
