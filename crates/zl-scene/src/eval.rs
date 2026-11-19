@@ -1,3 +1,5 @@
+use glam::DVec3;
+
 use crate::{BinaryOp, Callee, Expr, ObjectId, Property, UnaryOp, Value};
 use std::collections::BTreeMap;
 
@@ -60,7 +62,12 @@ impl Expr {
                     Callee::User(_) => todo!(),
                 }
             }
-            Expr::Vector { .. } => todo!(),
+            Expr::Vector { x, y, z } => {
+                let val_x = x.evaluate(ctx)?.as_real()?;
+                let val_y = y.evaluate(ctx)?.as_real()?;
+                let val_z = z.evaluate(ctx)?.as_real()?;
+                Some(Value::Vector(DVec3::new(val_x, val_y, val_z)))
+            }
         }
     }
 }
@@ -405,6 +412,90 @@ mod tests {
                 assert!(p.x.abs() < 1e-12 && (p.y - 1.0).abs() < 1e-12 && p.z == 0.0)
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    fn vector(x: Expr, y: Expr, z: Expr) -> Expr {
+        Expr::Vector {
+            x: Box::new(x),
+            y: Box::new(y),
+            z: Box::new(z),
+        }
+    }
+
+    fn constant(v: Value) -> Expr {
+        Expr::Constant(v)
+    }
+
+    #[test]
+    fn vector_of_constants_keeps_component_order() {
+        let ctx = EvalContext::default();
+        assert_eq!(
+            vector(real(1.0), real(-2.0), real(3.0)).evaluate(&ctx),
+            Some(Value::Vector(DVec3::new(1.0, -2.0, 3.0)))
+        );
+    }
+
+    #[test]
+    fn vector_components_are_evaluated_in_context() {
+        let ctx = EvalContext {
+            objects: [(ObjectId(1), Value::Real(5.0))].into_iter().collect(),
+            variables: vec![("t".to_string(), Value::Real(0.5))],
+            time: 0.0,
+        };
+        let expr = vector(
+            binary(BinaryOp::Mul, real(2.0), Expr::Variable("t".to_string())),
+            reference(1, Property::Value),
+            binary(BinaryOp::Sub, real(1.0), real(1.0)),
+        );
+        assert_eq!(
+            expr.evaluate(&ctx),
+            Some(Value::Vector(DVec3::new(1.0, 5.0, 0.0)))
+        );
+    }
+
+    #[test]
+    fn near_real_complex_component_uses_its_real_part() {
+        let ctx = EvalContext::default();
+        let near_real = constant(Value::Complex(Complex::new(3.0, 1e-17)));
+        assert_eq!(
+            vector(near_real, real(0.0), real(0.0)).evaluate(&ctx),
+            Some(Value::Vector(DVec3::new(3.0, 0.0, 0.0)))
+        );
+    }
+
+    fn with_bad_component_at_each_position(bad: impl Fn() -> Expr) -> [Expr; 3] {
+        [
+            vector(bad(), real(0.0), real(0.0)),
+            vector(real(0.0), bad(), real(0.0)),
+            vector(real(0.0), real(0.0), bad()),
+        ]
+    }
+
+    #[test]
+    fn complex_component_makes_vector_undefined() {
+        let ctx = EvalContext::default();
+        let bad = || constant(Value::Complex(Complex::new(0.0, 1.0)));
+        for expr in with_bad_component_at_each_position(bad) {
+            assert_eq!(expr.evaluate(&ctx), None);
+        }
+    }
+
+    #[test]
+    fn vector_component_makes_vector_undefined() {
+        let ctx = EvalContext::default();
+        let bad = || constant(Value::Vector(DVec3::new(1.0, 2.0, 3.0)));
+        for expr in with_bad_component_at_each_position(bad) {
+            assert_eq!(expr.evaluate(&ctx), None);
+        }
+    }
+
+    #[test]
+    fn undefined_component_makes_vector_undefined() {
+        let ctx = EvalContext::default();
+        let bad = || binary(BinaryOp::Div, real(1.0), real(0.0));
+        for expr in with_bad_component_at_each_position(bad) {
+            assert_eq!(expr.evaluate(&ctx), None);
         }
     }
 }

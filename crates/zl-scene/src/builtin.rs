@@ -3,10 +3,9 @@ use std::f64::consts::PI;
 use glam::DVec3;
 use num_complex::Complex;
 
-use crate::{BuiltInFn, Value};
+use crate::{BuiltInFn, NEAR_REAL_TOLERANCE, Value};
 
 const CHOP_TOLERANCE: f64 = 1e-10;
-const NEAR_REAL_TOLERANCE: f64 = 1e-10;
 const MAX_FACTORIAL_ARG: f64 = 170.0;
 
 type RealFn = fn(f64) -> f64;
@@ -142,9 +141,9 @@ impl BuiltInFn {
                 Value::Complex(z) => Value::Complex(Complex::new(chop(z.re), chop(z.im))),
                 Value::Vector(v) => Value::Vector(DVec3::new(chop(v.x), chop(v.y), chop(v.z))),
             }),
-            BuiltInFn::Factorial => factorial(as_real(a)?).map(Value::Real),
+            BuiltInFn::Factorial => factorial(a.as_real()?).map(Value::Real),
             BuiltInFn::Mod => two_reals(args, f64::rem_euclid),
-            BuiltInFn::Binomial => binomial(as_real(a)?, as_real(&args[1])?).map(Value::Real),
+            BuiltInFn::Binomial => binomial(a.as_real()?, args[1].as_real()?).map(Value::Real),
         };
         res?.finite()
     }
@@ -158,20 +157,12 @@ fn real_or_complex(value: &Value, on_real: RealFn, on_complex: ComplexFn) -> Opt
     }
 }
 
-fn as_real(value: &Value) -> Option<f64> {
-    match value {
-        Value::Real(x) => Some(*x),
-        Value::Complex(z) if z.im.abs() <= NEAR_REAL_TOLERANCE * z.re.abs().max(1.0) => Some(z.re),
-        Value::Complex(_) | Value::Vector(_) => None,
-    }
-}
-
 fn real_only(value: &Value, f: RealFn) -> Option<Value> {
-    Some(Value::Real(f(as_real(value)?)))
+    Some(Value::Real(f(value.as_real()?)))
 }
 
 fn two_reals(args: &[Value], f: fn(f64, f64) -> f64) -> Option<Value> {
-    Some(Value::Real(f(as_real(&args[0])?, as_real(&args[1])?)))
+    Some(Value::Real(f(args[0].as_real()?, args[1].as_real()?)))
 }
 
 fn as_complex(value: &Value) -> Option<Complex<f64>> {
@@ -190,7 +181,7 @@ fn log(x: &Value, base: &Value) -> Option<Value> {
 }
 
 fn nth_root(x: &Value, n: &Value) -> Option<Value> {
-    let n = &as_real(n)?;
+    let n = &n.as_real()?;
     if n.fract() != 0.0 || *n < 1.0 {
         return None;
     }

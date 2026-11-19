@@ -1,6 +1,8 @@
 use glam::DVec3;
 use num_complex::Complex;
 
+pub(crate) const NEAR_REAL_TOLERANCE: f64 = 1e-10;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Real(f64),
@@ -91,6 +93,16 @@ impl Value {
             Value::Vector(v) => v.is_finite(),
         };
         if ok { Some(self) } else { None }
+    }
+
+    pub(crate) fn as_real(&self) -> Option<f64> {
+        match self {
+            Value::Real(x) => Some(*x),
+            Value::Complex(z) if z.im.abs() <= NEAR_REAL_TOLERANCE * z.re.abs().max(1.0) => {
+                Some(z.re)
+            }
+            Value::Complex(_) | Value::Vector(_) => None,
+        }
     }
 }
 
