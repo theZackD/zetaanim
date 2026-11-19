@@ -1,3 +1,5 @@
+use crate::{ObjectId, Value};
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnaryOp {
     Neg,
@@ -27,4 +29,38 @@ pub enum BuiltInFn {
 pub enum Property {
     Value,
     Position,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Callee {
+    BuiltIn(BuiltInFn),
+    User(ObjectId),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Expr {
+    Constant(Value),
+    Reference {
+        object: ObjectId,
+        property: Property,
+    },
+    Variable(String),
+    Unary {
+        op: UnaryOp,
+        arg: Box<Expr>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Call {
+        callee: Callee,
+        args: Vec<Expr>,
+    },
+    Vector {
+        x: Box<Expr>,
+        y: Box<Expr>,
+        z: Box<Expr>,
+    },
 }
