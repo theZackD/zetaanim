@@ -1,4 +1,4 @@
-use crate::{Expr, ObjectId, Property, Value};
+use crate::{BinaryOp, Expr, ObjectId, Property, UnaryOp, Value};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -32,8 +32,23 @@ impl Expr {
                 }
             }
             Expr::Variable(name) => ctx.variable(name).cloned(),
-            Expr::Unary { .. } => todo!(),
-            Expr::Binary { .. } => todo!(),
+            Expr::Unary { op, arg } => {
+                let value = arg.evaluate(ctx)?;
+                match op {
+                    UnaryOp::Neg => value.neg(),
+                }
+            }
+            Expr::Binary { op, left, right } => {
+                let val_l = left.evaluate(ctx)?;
+                let val_r = right.evaluate(ctx)?;
+                match op {
+                    BinaryOp::Add => val_l.add(&val_r),
+                    BinaryOp::Sub => val_l.sub(&val_r),
+                    BinaryOp::Mul => todo!(),
+                    BinaryOp::Div => todo!(),
+                    BinaryOp::Pow => todo!(),
+                }
+            }
             Expr::Call { .. } => todo!(),
             Expr::Vector { .. } => todo!(),
         }
@@ -198,5 +213,82 @@ mod tests {
             reference(2, Property::Value).evaluate(&ctx),
             Some(Value::Real(2.0))
         );
+    }
+
+    fn real(x: f64) -> Expr {
+        Expr::Constant(Value::Real(x))
+    }
+
+    fn unary(op: UnaryOp, arg: Expr) -> Expr {
+        Expr::Unary {
+            op,
+            arg: Box::new(arg),
+        }
+    }
+
+    fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
+        Expr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    #[test]
+    fn unary_neg_evaluates() {
+        let ctx = EvalContext::default();
+        assert_eq!(
+            unary(UnaryOp::Neg, real(2.0)).evaluate(&ctx),
+            Some(Value::Real(-2.0))
+        );
+    }
+
+    #[test]
+    fn binary_add_and_sub_evaluate_in_order() {
+        let ctx = EvalContext::default();
+        assert_eq!(
+            binary(BinaryOp::Add, real(2.0), real(3.0)).evaluate(&ctx),
+            Some(Value::Real(5.0))
+        );
+        assert_eq!(
+            binary(BinaryOp::Sub, real(2.0), real(3.0)).evaluate(&ctx),
+            Some(Value::Real(-1.0))
+        );
+    }
+
+    #[test]
+    fn nested_tree_evaluates() {
+        let ctx = ctx_with(&[("x", 4.0)]);
+        let expr = unary(
+            UnaryOp::Neg,
+            binary(
+                BinaryOp::Sub,
+                Expr::Variable("x".to_string()),
+                binary(BinaryOp::Add, real(1.0), real(0.5)),
+            ),
+        );
+        assert_eq!(expr.evaluate(&ctx), Some(Value::Real(-2.5)));
+    }
+
+    #[test]
+    fn undefined_propagates_through_operations() {
+        let ctx = EvalContext::default();
+        let missing = Expr::Variable("t".to_string());
+        assert_eq!(unary(UnaryOp::Neg, missing.clone()).evaluate(&ctx), None);
+        assert_eq!(
+            binary(BinaryOp::Add, missing.clone(), real(1.0)).evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            binary(BinaryOp::Sub, real(1.0), missing).evaluate(&ctx),
+            None
+        );
+    }
+
+    #[test]
+    fn kind_mismatch_in_binary_is_undefined() {
+        let ctx = EvalContext::default();
+        let point = Expr::Constant(Value::Vector(DVec3::new(1.0, 0.0, 0.0)));
+        assert_eq!(binary(BinaryOp::Add, real(1.0), point).evaluate(&ctx), None);
     }
 }
