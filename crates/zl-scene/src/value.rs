@@ -12,11 +12,12 @@ pub enum Value {
 
 impl Value {
     pub fn neg(&self) -> Option<Value> {
-        match self {
-            Value::Real(r) => Some(Value::Real(-*r)),
-            Value::Complex(z) => Some(Value::Complex(-z)),
-            Value::Vector(v) => Some(Value::Vector(-v)),
-        }
+        let res = match self {
+            Value::Real(r) => Value::Real(-*r),
+            Value::Complex(z) => Value::Complex(-z),
+            Value::Vector(v) => Value::Vector(-v),
+        };
+        res.finite()
     }
 
     pub fn add(&self, other: &Value) -> Option<Value> {
@@ -87,12 +88,15 @@ impl Value {
     }
 
     pub(crate) fn finite(self) -> Option<Value> {
-        let ok = match &self {
-            Value::Real(r) => r.is_finite(),
-            Value::Complex(c) => c.is_finite(),
-            Value::Vector(v) => v.is_finite(),
-        };
-        if ok { Some(self) } else { None }
+        match self {
+            Value::Real(r) if r.is_finite() => Some(Value::Real(without_negative_zero(r))),
+            Value::Complex(c) if c.is_finite() => Some(Value::Complex(Complex::new(
+                without_negative_zero(c.re),
+                without_negative_zero(c.im),
+            ))),
+            Value::Vector(v) if v.is_finite() => Some(Value::Vector(v.map(without_negative_zero))),
+            Value::Real(_) | Value::Complex(_) | Value::Vector(_) => None,
+        }
     }
 
     pub(crate) fn as_real(&self) -> Option<f64> {
@@ -104,6 +108,10 @@ impl Value {
             Value::Complex(_) | Value::Vector(_) => None,
         }
     }
+}
+
+fn without_negative_zero(x: f64) -> f64 {
+    if x == 0.0 { 0.0 } else { x }
 }
 
 #[cfg(test)]
@@ -293,6 +301,47 @@ mod tests {
             0.0,
         );
         assert_complex_close(complex(0.0, 2.0).pow(&real(2.0)), -4.0, 0.0);
+    }
+
+    fn has_negative_zero(value: &Value) -> bool {
+        let parts = match value {
+            Value::Real(r) => vec![*r],
+            Value::Complex(c) => vec![c.re, c.im],
+            Value::Vector(v) => v.to_array().to_vec(),
+        };
+        parts.iter().any(|x| *x == 0.0 && x.is_sign_negative())
+    }
+
+    #[test]
+    fn negating_zero_gives_positive_zero() {
+        for zero in [real(0.0), complex(0.0, 0.0), vector(0.0, 0.0, 0.0)] {
+            let result = zero.neg().unwrap();
+            assert!(!has_negative_zero(&result), "{result:?}");
+        }
+    }
+
+    #[test]
+    fn operations_never_produce_negative_zero() {
+        let results = [
+            real(-1.0).mul(&real(0.0)),
+            complex(4.0, 0.0).neg(),
+            complex(0.0, 4.0).neg(),
+            real(-1.0).mul(&complex(4.0, 0.0)),
+            complex(4.0, 0.0).div(&real(-1.0)),
+            vector(2.0, 0.0, 0.0).neg(),
+            real(-1.0).mul(&vector(2.0, 0.0, 0.0)),
+        ];
+        for result in results {
+            let value = result.unwrap();
+            assert!(!has_negative_zero(&value), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn normalization_keeps_nonzero_signs() {
+        assert_eq!(real(3.5).neg(), Some(real(-3.5)));
+        assert_eq!(real(-1.0).mul(&complex(4.0, 0.0)), Some(complex(-4.0, 0.0)));
+        assert_eq!(vector(2.0, 0.0, 0.0).neg(), Some(vector(-2.0, 0.0, 0.0)));
     }
 
     #[test]

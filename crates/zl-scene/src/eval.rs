@@ -24,16 +24,16 @@ impl EvalContext {
 impl Expr {
     pub fn evaluate(&self, ctx: &EvalContext) -> Option<Value> {
         match self {
-            Expr::Constant(value) => Some(value.clone()),
+            Expr::Constant(value) => value.clone().finite(),
             Expr::Reference { object, property } => {
                 let value = ctx.objects.get(object)?;
                 match (property, value) {
                     (Property::Value, Value::Real(_) | Value::Complex(_))
-                    | (Property::Position, Value::Vector(_)) => Some(value.clone()),
+                    | (Property::Position, Value::Vector(_)) => value.clone().finite(),
                     _ => None,
                 }
             }
-            Expr::Variable(name) => ctx.variable(name).cloned(),
+            Expr::Variable(name) => ctx.variable(name).cloned()?.finite(),
             Expr::Unary { op, arg } => {
                 let value = arg.evaluate(ctx)?;
                 match op {
@@ -59,7 +59,7 @@ impl Expr {
                 }
                 match callee {
                     Callee::BuiltIn(f) => f.apply(&values),
-                    Callee::User(_) => todo!(),
+                    Callee::User(_) => None,
                 }
             }
             Expr::Vector { x, y, z } => {
@@ -497,5 +497,81 @@ mod tests {
         for expr in with_bad_component_at_each_position(bad) {
             assert_eq!(expr.evaluate(&ctx), None);
         }
+    }
+
+    #[test]
+    fn non_finite_leaves_are_undefined() {
+        let mut ctx = ctx_with_objects(&[
+            (1, Value::Real(f64::INFINITY)),
+            (2, Value::Vector(DVec3::new(0.0, f64::NAN, 0.0))),
+        ]);
+        ctx.variables.push((
+            "x".to_string(),
+            Value::Complex(Complex::new(f64::INFINITY, 0.0)),
+        ));
+        let leaves = [
+            constant(Value::Real(f64::INFINITY)),
+            constant(Value::Real(f64::NAN)),
+            constant(Value::Complex(Complex::new(0.0, f64::NEG_INFINITY))),
+            constant(Value::Vector(DVec3::new(f64::INFINITY, 0.0, 0.0))),
+            reference(1, Property::Value),
+            reference(2, Property::Position),
+            Expr::Variable("x".to_string()),
+        ];
+        for leaf in leaves {
+            assert_eq!(leaf.evaluate(&ctx), None, "{leaf:?}");
+        }
+    }
+
+    #[test]
+    fn infinite_constant_cannot_reach_a_vector() {
+        let ctx = EvalContext::default();
+        let expr = vector(constant(Value::Real(f64::INFINITY)), real(0.0), real(0.0));
+        assert_eq!(expr.evaluate(&ctx), None);
+    }
+
+    fn arg_of(expr: Expr, ctx: &EvalContext) -> Option<Value> {
+        call(BuiltInFn::Arg, vec![expr]).evaluate(ctx)
+    }
+
+    #[test]
+    fn leaves_normalize_negative_zero() {
+        let below_axis = Value::Complex(Complex::new(-4.0, -0.0));
+        let mut ctx = ctx_with_objects(&[(1, below_axis.clone())]);
+        ctx.variables.push(("z".to_string(), below_axis.clone()));
+        let pi = Some(Value::Real(std::f64::consts::PI));
+        assert_eq!(arg_of(constant(below_axis), &ctx), pi);
+        assert_eq!(arg_of(reference(1, Property::Value), &ctx), pi);
+        assert_eq!(arg_of(Expr::Variable("z".to_string()), &ctx), pi);
+    }
+
+    #[test]
+    fn negative_real_axis_gets_the_principal_branch() {
+        let ctx = EvalContext::default();
+        let pi = Some(Value::Real(std::f64::consts::PI));
+        let four = || constant(Value::Complex(Complex::new(4.0, 0.0)));
+        assert_eq!(
+            call(BuiltInFn::Sqrt, vec![unary(UnaryOp::Neg, four())]).evaluate(&ctx),
+            Some(Value::Complex(Complex::new(0.0, 2.0)))
+        );
+        assert_eq!(arg_of(unary(UnaryOp::Neg, four()), &ctx), pi);
+        assert_eq!(arg_of(binary(BinaryOp::Mul, real(-1.0), four()), &ctx), pi);
+        let minus_zero = unary(UnaryOp::Neg, real(0.0));
+        assert_eq!(
+            call(BuiltInFn::Atan2, vec![minus_zero, real(-1.0)]).evaluate(&ctx),
+            pi
+        );
+        let point = unary(UnaryOp::Neg, vector(real(2.0), real(0.0), real(0.0)));
+        assert_eq!(arg_of(call(BuiltInFn::ToComplex, vec![point]), &ctx), pi);
+    }
+
+    #[test]
+    fn user_function_call_is_undefined_until_implemented() {
+        let ctx = EvalContext::default();
+        let expr = Expr::Call {
+            callee: Callee::User(ObjectId(1)),
+            args: vec![real(2.0)],
+        };
+        assert_eq!(expr.evaluate(&ctx), None);
     }
 }
