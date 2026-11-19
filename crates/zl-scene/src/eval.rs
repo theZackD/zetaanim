@@ -1,5 +1,4 @@
-use crate::ObjectId;
-use crate::Value;
+use crate::{Expr, ObjectId, Property, Value};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -20,9 +19,32 @@ impl EvalContext {
     }
 }
 
+impl Expr {
+    pub fn evaluate(&self, ctx: &EvalContext) -> Option<Value> {
+        match self {
+            Expr::Constant(value) => Some(value.clone()),
+            Expr::Reference { object, property } => {
+                let value = ctx.objects.get(object)?;
+                match (property, value) {
+                    (Property::Value, Value::Real(_) | Value::Complex(_))
+                    | (Property::Position, Value::Vector(_)) => Some(value.clone()),
+                    _ => None,
+                }
+            }
+            Expr::Variable(name) => ctx.variable(name).cloned(),
+            Expr::Unary { .. } => todo!(),
+            Expr::Binary { .. } => todo!(),
+            Expr::Call { .. } => todo!(),
+            Expr::Vector { .. } => todo!(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::DVec3;
+    use num_complex::Complex;
 
     fn ctx_with(vars: &[(&str, f64)]) -> EvalContext {
         EvalContext {
@@ -76,5 +98,105 @@ mod tests {
         assert_eq!(ctx.variable("nn"), None);
         assert_eq!(ctx.variable(""), None);
         assert_eq!(ctx.variable("N"), None);
+    }
+
+    fn ctx_with_objects(objects: &[(u64, Value)]) -> EvalContext {
+        EvalContext {
+            objects: objects
+                .iter()
+                .map(|(id, v)| (ObjectId(*id), v.clone()))
+                .collect(),
+            ..EvalContext::default()
+        }
+    }
+
+    fn reference(id: u64, property: Property) -> Expr {
+        Expr::Reference {
+            object: ObjectId(id),
+            property,
+        }
+    }
+
+    #[test]
+    fn constant_evaluates_to_its_value() {
+        let ctx = EvalContext::default();
+        for v in [
+            Value::Real(2.5),
+            Value::Complex(Complex::new(3.0, 4.0)),
+            Value::Vector(DVec3::new(1.0, 2.0, 0.0)),
+        ] {
+            assert_eq!(Expr::Constant(v.clone()).evaluate(&ctx), Some(v));
+        }
+    }
+
+    #[test]
+    fn variable_evaluates_to_its_bound_value() {
+        let ctx = ctx_with(&[("x", 0.3)]);
+        let expr = Expr::Variable("x".to_string());
+        assert_eq!(expr.evaluate(&ctx), Some(Value::Real(0.3)));
+    }
+
+    #[test]
+    fn unbound_variable_is_undefined() {
+        let ctx = ctx_with(&[("x", 0.3)]);
+        let expr = Expr::Variable("t".to_string());
+        assert_eq!(expr.evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn variable_uses_innermost_binding() {
+        let ctx = ctx_with(&[("n", 1.0), ("n", 2.0)]);
+        let expr = Expr::Variable("n".to_string());
+        assert_eq!(expr.evaluate(&ctx), Some(Value::Real(2.0)));
+    }
+
+    #[test]
+    fn reference_to_number_value() {
+        let ctx = ctx_with_objects(&[
+            (1, Value::Real(0.7)),
+            (2, Value::Complex(Complex::new(0.5, 14.1))),
+        ]);
+        assert_eq!(
+            reference(1, Property::Value).evaluate(&ctx),
+            Some(Value::Real(0.7))
+        );
+        assert_eq!(
+            reference(2, Property::Value).evaluate(&ctx),
+            Some(Value::Complex(Complex::new(0.5, 14.1)))
+        );
+    }
+
+    #[test]
+    fn reference_to_point_position() {
+        let p = Value::Vector(DVec3::new(1.0, -2.0, 0.0));
+        let ctx = ctx_with_objects(&[(5, p.clone())]);
+        assert_eq!(reference(5, Property::Position).evaluate(&ctx), Some(p));
+    }
+
+    #[test]
+    fn reference_with_wrong_property_is_undefined() {
+        let ctx = ctx_with_objects(&[
+            (1, Value::Real(0.7)),
+            (2, Value::Complex(Complex::new(0.5, 14.1))),
+            (5, Value::Vector(DVec3::new(1.0, -2.0, 0.0))),
+        ]);
+        assert_eq!(reference(1, Property::Position).evaluate(&ctx), None);
+        assert_eq!(reference(2, Property::Position).evaluate(&ctx), None);
+        assert_eq!(reference(5, Property::Value).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn reference_to_missing_object_is_undefined() {
+        let ctx = ctx_with_objects(&[(1, Value::Real(0.7))]);
+        assert_eq!(reference(2, Property::Value).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn reference_reads_the_right_object() {
+        let ctx = ctx_with_objects(&[(1, Value::Real(1.0)), (2, Value::Real(2.0))]);
+        assert_eq!(
+            reference(2, Property::Value).evaluate(&ctx),
+            Some(Value::Real(2.0))
+        );
     }
 }
