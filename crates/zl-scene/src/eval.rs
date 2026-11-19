@@ -1,4 +1,4 @@
-use crate::{BinaryOp, Expr, ObjectId, Property, UnaryOp, Value};
+use crate::{BinaryOp, Callee, Expr, ObjectId, Property, UnaryOp, Value};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Default)]
@@ -49,7 +49,17 @@ impl Expr {
                     BinaryOp::Pow => val_l.pow(&val_r),
                 }
             }
-            Expr::Call { .. } => todo!(),
+            Expr::Call { callee, args } => {
+                let mut values: Vec<Value> = Vec::new();
+                for arg in args {
+                    let value = arg.evaluate(ctx)?;
+                    values.push(value);
+                }
+                match callee {
+                    Callee::BuiltIn(f) => f.apply(&values),
+                    Callee::User(_) => todo!(),
+                }
+            }
             Expr::Vector { .. } => todo!(),
         }
     }
@@ -58,6 +68,7 @@ impl Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BuiltInFn;
     use glam::DVec3;
     use num_complex::Complex;
 
@@ -330,5 +341,70 @@ mod tests {
         let ctx = ctx_with(&[("x", 0.0)]);
         let expr = binary(BinaryOp::Div, real(1.0), Expr::Variable("x".to_string()));
         assert_eq!(expr.evaluate(&ctx), None);
+    }
+
+    fn call(f: BuiltInFn, args: Vec<Expr>) -> Expr {
+        Expr::Call {
+            callee: Callee::BuiltIn(f),
+            args,
+        }
+    }
+
+    #[test]
+    fn call_evaluates_its_arguments() {
+        let ctx = ctx_with(&[("x", 0.0)]);
+        let expr = call(BuiltInFn::Cos, vec![Expr::Variable("x".to_string())]);
+        assert_eq!(expr.evaluate(&ctx), Some(Value::Real(1.0)));
+    }
+
+    #[test]
+    fn call_with_wrong_number_of_arguments_is_undefined() {
+        let ctx = EvalContext::default();
+        assert_eq!(call(BuiltInFn::Cos, vec![]).evaluate(&ctx), None);
+        assert_eq!(
+            call(BuiltInFn::Cos, vec![real(1.0), real(2.0)]).evaluate(&ctx),
+            None
+        );
+    }
+
+    #[test]
+    fn call_with_undefined_argument_is_undefined() {
+        let ctx = EvalContext::default();
+        let expr = call(BuiltInFn::Sin, vec![Expr::Variable("t".to_string())]);
+        assert_eq!(expr.evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn call_passes_arguments_in_order() {
+        let ctx = EvalContext::default();
+        let expr = call(BuiltInFn::Log, vec![real(8.0), real(2.0)]);
+        match expr.evaluate(&ctx) {
+            Some(Value::Real(x)) => assert!((x - 3.0).abs() < 1e-12),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn unit_circle_point_from_theta() {
+        let ctx = ctx_with(&[("theta", std::f64::consts::FRAC_PI_2)]);
+        let theta = || Expr::Variable("theta".to_string());
+        let expr = Expr::Call {
+            callee: Callee::BuiltIn(BuiltInFn::ToPoint),
+            args: vec![binary(
+                BinaryOp::Add,
+                call(BuiltInFn::Cos, vec![theta()]),
+                binary(
+                    BinaryOp::Mul,
+                    Expr::Constant(Value::Complex(Complex::new(0.0, 1.0))),
+                    call(BuiltInFn::Sin, vec![theta()]),
+                ),
+            )],
+        };
+        match expr.evaluate(&ctx) {
+            Some(Value::Vector(p)) => {
+                assert!(p.x.abs() < 1e-12 && (p.y - 1.0).abs() < 1e-12 && p.z == 0.0)
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

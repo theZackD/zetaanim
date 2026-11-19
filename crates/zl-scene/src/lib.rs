@@ -1,3 +1,4 @@
+mod builtin;
 mod eval;
 mod expr;
 mod id;

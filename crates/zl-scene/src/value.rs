@@ -84,7 +84,7 @@ impl Value {
         res?.finite()
     }
 
-    fn finite(self) -> Option<Value> {
+    pub(crate) fn finite(self) -> Option<Value> {
         let ok = match &self {
             Value::Real(r) => r.is_finite(),
             Value::Complex(c) => c.is_finite(),
