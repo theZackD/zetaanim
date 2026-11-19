@@ -44,8 +44,8 @@ impl Expr {
                 match op {
                     BinaryOp::Add => val_l.add(&val_r),
                     BinaryOp::Sub => val_l.sub(&val_r),
-                    BinaryOp::Mul => todo!(),
-                    BinaryOp::Div => todo!(),
+                    BinaryOp::Mul => val_l.mul(&val_r),
+                    BinaryOp::Div => val_l.div(&val_r),
                     BinaryOp::Pow => todo!(),
                 }
             }

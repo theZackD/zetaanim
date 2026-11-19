@@ -41,6 +41,34 @@ impl Value {
         res?.finite()
     }
 
+    pub fn mul(&self, other: &Value) -> Option<Value> {
+        let res = match (self, other) {
+            (Value::Real(r1), Value::Real(r2)) => Some(Value::Real(r1 * r2)),
+            (Value::Real(r), Value::Complex(c)) | (Value::Complex(c), Value::Real(r)) => {
+                Some(Value::Complex(r * c))
+            }
+
+            (Value::Complex(c1), Value::Complex(c2)) => Some(Value::Complex(c1 * c2)),
+            (Value::Vector(v), Value::Real(r)) | (Value::Real(r), Value::Vector(v)) => {
+                Some(Value::Vector(r * v))
+            }
+            _ => None,
+        };
+        res?.finite()
+    }
+
+    pub fn div(&self, other: &Value) -> Option<Value> {
+        let res = match (self, other) {
+            (Value::Real(r1), Value::Real(r2)) => Some(Value::Real(r1 / r2)),
+            (Value::Real(r), Value::Complex(c)) => Some(Value::Complex(r / c)),
+            (Value::Complex(c), Value::Real(r)) => Some(Value::Complex(c / r)),
+            (Value::Complex(c1), Value::Complex(c2)) => Some(Value::Complex(c1 / c2)),
+            (Value::Vector(v), Value::Real(r)) => Some(Value::Vector(v / r)),
+            _ => None,
+        };
+        res?.finite()
+    }
+
     fn finite(self) -> Option<Value> {
         let ok = match &self {
             Value::Real(r) => r.is_finite(),
