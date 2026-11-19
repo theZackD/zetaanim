@@ -46,7 +46,7 @@ impl Expr {
                     BinaryOp::Sub => val_l.sub(&val_r),
                     BinaryOp::Mul => val_l.mul(&val_r),
                     BinaryOp::Div => val_l.div(&val_r),
-                    BinaryOp::Pow => todo!(),
+                    BinaryOp::Pow => val_l.pow(&val_r),
                 }
             }
             Expr::Call { .. } => todo!(),
@@ -290,5 +290,45 @@ mod tests {
         let ctx = EvalContext::default();
         let point = Expr::Constant(Value::Vector(DVec3::new(1.0, 0.0, 0.0)));
         assert_eq!(binary(BinaryOp::Add, real(1.0), point).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn binary_mul_div_pow_evaluate_in_order() {
+        let ctx = EvalContext::default();
+        assert_eq!(
+            binary(BinaryOp::Mul, real(2.0), real(3.0)).evaluate(&ctx),
+            Some(Value::Real(6.0))
+        );
+        assert_eq!(
+            binary(BinaryOp::Div, real(3.0), real(6.0)).evaluate(&ctx),
+            Some(Value::Real(0.5))
+        );
+        assert_eq!(
+            binary(BinaryOp::Pow, real(2.0), real(3.0)).evaluate(&ctx),
+            Some(Value::Real(8.0))
+        );
+    }
+
+    #[test]
+    fn polynomial_in_a_variable() {
+        let ctx = ctx_with(&[("x", 3.0)]);
+        let x = || Expr::Variable("x".to_string());
+        let expr = binary(
+            BinaryOp::Add,
+            binary(
+                BinaryOp::Mul,
+                real(2.0),
+                binary(BinaryOp::Pow, x(), real(2.0)),
+            ),
+            binary(BinaryOp::Div, x(), real(4.0)),
+        );
+        assert_eq!(expr.evaluate(&ctx), Some(Value::Real(18.75)));
+    }
+
+    #[test]
+    fn division_by_zero_in_tree_is_undefined() {
+        let ctx = ctx_with(&[("x", 0.0)]);
+        let expr = binary(BinaryOp::Div, real(1.0), Expr::Variable("x".to_string()));
+        assert_eq!(expr.evaluate(&ctx), None);
     }
 }

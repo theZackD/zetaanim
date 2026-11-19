@@ -69,6 +69,21 @@ impl Value {
         res?.finite()
     }
 
+    pub fn pow(&self, other: &Value) -> Option<Value> {
+        let res = match (self, other) {
+            (Value::Real(r1), Value::Real(r2)) => Some(Value::Real(r1.powf(*r2))),
+            (Value::Real(r), Value::Complex(c)) => {
+                Some(Value::Complex(Complex::new(*r, 0.0).powc(*c)))
+            }
+            (Value::Complex(c), Value::Real(r)) => {
+                Some(Value::Complex(c.powc(Complex::new(*r, 0.0))))
+            }
+            (Value::Complex(c1), Value::Complex(c2)) => Some(Value::Complex(c1.powc(*c2))),
+            _ => None,
+        };
+        res?.finite()
+    }
+
     fn finite(self) -> Option<Value> {
         let ok = match &self {
             Value::Real(r) => r.is_finite(),
@@ -175,5 +190,103 @@ mod tests {
     #[test]
     fn finite_keeps_ordinary_values() {
         assert_eq!(real(1.0e300).add(&real(1.0e300)), Some(real(2.0e300)));
+    }
+
+    fn assert_complex_close(value: Option<Value>, re: f64, im: f64) {
+        match value {
+            Some(Value::Complex(c)) => {
+                assert!(
+                    (c.re - re).abs() < 1e-12 && (c.im - im).abs() < 1e-12,
+                    "{c}"
+                );
+            }
+            other => panic!("expected a complex, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mul_numbers() {
+        assert_eq!(real(2.0).mul(&real(3.0)), Some(real(6.0)));
+        assert_eq!(real(2.0).mul(&complex(1.0, 4.0)), Some(complex(2.0, 8.0)));
+        assert_eq!(complex(1.0, 4.0).mul(&real(2.0)), Some(complex(2.0, 8.0)));
+        assert_eq!(
+            complex(0.0, 1.0).mul(&complex(0.0, 1.0)),
+            Some(complex(-1.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn mul_scalar_and_vector_both_ways() {
+        let v = vector(1.0, -2.0, 3.0);
+        assert_eq!(real(2.0).mul(&v), Some(vector(2.0, -4.0, 6.0)));
+        assert_eq!(v.mul(&real(2.0)), Some(vector(2.0, -4.0, 6.0)));
+    }
+
+    #[test]
+    fn mul_ambiguous_vector_products_are_undefined() {
+        let v = vector(1.0, 2.0, 3.0);
+        assert_eq!(v.mul(&v), None);
+        assert_eq!(complex(1.0, 1.0).mul(&v), None);
+        assert_eq!(v.mul(&complex(1.0, 1.0)), None);
+    }
+
+    #[test]
+    fn div_numbers_keep_operand_order() {
+        assert_eq!(real(6.0).div(&real(3.0)), Some(real(2.0)));
+        assert_eq!(real(3.0).div(&real(6.0)), Some(real(0.5)));
+        assert_eq!(complex(2.0, 8.0).div(&real(2.0)), Some(complex(1.0, 4.0)));
+        assert_complex_close(real(1.0).div(&complex(0.0, 1.0)), 0.0, -1.0);
+        assert_complex_close(complex(1.0, 1.0).div(&complex(1.0, -1.0)), 0.0, 1.0);
+    }
+
+    #[test]
+    fn div_vector_by_scalar_only() {
+        let v = vector(2.0, -4.0, 6.0);
+        assert_eq!(v.div(&real(2.0)), Some(vector(1.0, -2.0, 3.0)));
+        assert_eq!(real(2.0).div(&v), None);
+        assert_eq!(v.div(&v), None);
+    }
+
+    #[test]
+    fn division_by_zero_is_undefined() {
+        assert_eq!(real(1.0).div(&real(0.0)), None);
+        assert_eq!(real(0.0).div(&real(0.0)), None);
+        assert_eq!(complex(1.0, 1.0).div(&complex(0.0, 0.0)), None);
+        assert_eq!(complex(1.0, 1.0).div(&real(0.0)), None);
+        assert_eq!(vector(1.0, 2.0, 3.0).div(&real(0.0)), None);
+    }
+
+    #[test]
+    fn pow_reals() {
+        assert_eq!(real(2.0).pow(&real(10.0)), Some(real(1024.0)));
+        assert_eq!(real(-2.0).pow(&real(3.0)), Some(real(-8.0)));
+        assert_eq!(real(4.0).pow(&real(0.5)), Some(real(2.0)));
+        assert_eq!(real(0.0).pow(&real(0.0)), Some(real(1.0)));
+    }
+
+    #[test]
+    fn pow_strict_in_reals() {
+        assert_eq!(real(-8.0).pow(&real(0.5)), None);
+        assert_eq!(real(-8.0).pow(&real(1.0 / 3.0)), None);
+        assert_eq!(real(0.0).pow(&real(-1.0)), None);
+    }
+
+    #[test]
+    fn pow_complex_principal_branch() {
+        assert_complex_close(complex(-8.0, 0.0).pow(&real(1.0 / 3.0)), 1.0, 3f64.sqrt());
+        assert_complex_close(real(-1.0).pow(&complex(0.5, 0.0)), 0.0, 1.0);
+        assert_complex_close(
+            complex(0.0, 1.0).pow(&complex(0.0, 1.0)),
+            (-std::f64::consts::FRAC_PI_2).exp(),
+            0.0,
+        );
+        assert_complex_close(complex(0.0, 2.0).pow(&real(2.0)), -4.0, 0.0);
+    }
+
+    #[test]
+    fn pow_with_vector_is_undefined() {
+        let v = vector(1.0, 2.0, 3.0);
+        assert_eq!(v.pow(&real(2.0)), None);
+        assert_eq!(real(2.0).pow(&v), None);
     }
 }
