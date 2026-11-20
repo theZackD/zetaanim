@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
+
 use glam::DVec3;
 
-use crate::{EvalContext, Expr, Property, Value};
+use crate::{EvalContext, Expr, ObjectId, Property, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Origin {
@@ -64,6 +66,23 @@ impl Construction {
                 } else {
                     None
                 }
+            }
+        }
+    }
+
+    pub fn dependencies(&self) -> BTreeSet<ObjectId> {
+        match self {
+            Construction::Point { position } => position.dependencies(),
+            Construction::Number { value } => value.dependencies(),
+            Construction::Circle { center, radius } => {
+                let mut c = center.dependencies();
+                c.extend(radius.dependencies());
+                c
+            }
+            Construction::Segment { start, end } => {
+                let mut s = start.dependencies();
+                s.extend(end.dependencies());
+                s
             }
         }
     }
@@ -864,5 +883,83 @@ mod tests {
         }
         assert_eq!(point(reference(0, Property::Center)).evaluate(&ctx), None);
         assert_eq!(number(reference(0, Property::Radius)).evaluate(&ctx), None);
+    }
+
+    fn ids(ids: &[u64]) -> BTreeSet<ObjectId> {
+        ids.iter().map(|id| ObjectId(*id)).collect()
+    }
+
+    #[test]
+    fn every_field_of_every_construction_is_a_dependency() {
+        let later = || reference(9, Property::Position);
+        let later_number = || reference(9, Property::Value);
+        let origin = || constant(vector(0.0, 0.0, 0.0));
+        let one = || constant(real(1.0));
+        let cases = [
+            ("point position", point(later())),
+            ("number value", number(later_number())),
+            ("segment start", segment(later(), origin())),
+            ("segment end", segment(origin(), later())),
+            ("circle center", circle(later(), one())),
+            ("circle radius", circle(origin(), later_number())),
+        ];
+        for (field, construction) in cases {
+            assert_eq!(
+                construction.dependencies(),
+                ids(&[9]),
+                "dependency missed in {field}"
+            );
+        }
+    }
+
+    #[test]
+    fn constructions_from_constants_have_no_dependencies() {
+        let origin = || constant(vector(0.0, 0.0, 0.0));
+        let one = || constant(real(1.0));
+        assert_eq!(point(origin()).dependencies(), ids(&[]));
+        assert_eq!(number(one()).dependencies(), ids(&[]));
+        assert_eq!(segment(origin(), origin()).dependencies(), ids(&[]));
+        assert_eq!(circle(origin(), one()).dependencies(), ids(&[]));
+    }
+
+    #[test]
+    fn construction_dependencies_merge_all_fields() {
+        assert_eq!(
+            segment(
+                reference(3, Property::Position),
+                reference(9, Property::Position)
+            )
+            .dependencies(),
+            ids(&[3, 9])
+        );
+        let radius = call(
+            BuiltInFn::Norm,
+            vec![binary(
+                BinaryOp::Sub,
+                reference(1, Property::Position),
+                reference(0, Property::Position),
+            )],
+        );
+        assert_eq!(
+            circle(reference(0, Property::Position), radius).dependencies(),
+            ids(&[0, 1])
+        );
+    }
+
+    #[test]
+    fn object_shared_by_both_fields_is_counted_once() {
+        let a = || reference(2, Property::Position);
+        let shifted = binary(BinaryOp::Add, a(), constant(vector(1.0, 0.0, 0.0)));
+        assert_eq!(segment(a(), shifted).dependencies(), ids(&[2]));
+    }
+
+    #[test]
+    fn self_reference_is_reported_as_a_dependency() {
+        let a_moved_by_itself = point(binary(
+            BinaryOp::Add,
+            reference(0, Property::Position),
+            constant(vector(0.1, 0.0, 0.0)),
+        ));
+        assert_eq!(a_moved_by_itself.dependencies(), ids(&[0]));
     }
 }
