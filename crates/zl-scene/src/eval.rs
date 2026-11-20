@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct EvalContext {
-    pub objects: BTreeMap<ObjectId, Value>,
+    pub objects: BTreeMap<(ObjectId, Property), Value>,
     pub variables: Vec<(String, Value)>,
     pub time: f64,
 }
@@ -26,12 +26,7 @@ impl Expr {
         match self {
             Expr::Constant(value) => value.clone().finite(),
             Expr::Reference { object, property } => {
-                let value = ctx.objects.get(object)?;
-                match (property, value) {
-                    (Property::Value, Value::Real(_) | Value::Complex(_))
-                    | (Property::Position, Value::Vector(_)) => value.clone().finite(),
-                    _ => None,
-                }
+                ctx.objects.get(&(*object, *property)).cloned()?.finite()
             }
             Expr::Variable(name) => ctx.variable(name).cloned()?.finite(),
             Expr::Unary { op, arg } => {
@@ -133,11 +128,11 @@ mod tests {
         assert_eq!(ctx.variable("N"), None);
     }
 
-    fn ctx_with_objects(objects: &[(u64, Value)]) -> EvalContext {
+    fn ctx_with_objects(objects: &[(u64, Property, Value)]) -> EvalContext {
         EvalContext {
             objects: objects
                 .iter()
-                .map(|(id, v)| (ObjectId(*id), v.clone()))
+                .map(|(id, property, v)| ((ObjectId(*id), *property), v.clone()))
                 .collect(),
             ..EvalContext::default()
         }
@@ -186,8 +181,8 @@ mod tests {
     #[test]
     fn reference_to_number_value() {
         let ctx = ctx_with_objects(&[
-            (1, Value::Real(0.7)),
-            (2, Value::Complex(Complex::new(0.5, 14.1))),
+            (1, Property::Value, Value::Real(0.7)),
+            (2, Property::Value, Value::Complex(Complex::new(0.5, 14.1))),
         ]);
         assert_eq!(
             reference(1, Property::Value).evaluate(&ctx),
@@ -202,31 +197,57 @@ mod tests {
     #[test]
     fn reference_to_point_position() {
         let p = Value::Vector(DVec3::new(1.0, -2.0, 0.0));
-        let ctx = ctx_with_objects(&[(5, p.clone())]);
+        let ctx = ctx_with_objects(&[(5, Property::Position, p.clone())]);
         assert_eq!(reference(5, Property::Position).evaluate(&ctx), Some(p));
     }
 
     #[test]
-    fn reference_with_wrong_property_is_undefined() {
+    fn reference_to_missing_property_is_undefined() {
         let ctx = ctx_with_objects(&[
-            (1, Value::Real(0.7)),
-            (2, Value::Complex(Complex::new(0.5, 14.1))),
-            (5, Value::Vector(DVec3::new(1.0, -2.0, 0.0))),
+            (1, Property::Value, Value::Real(0.7)),
+            (
+                5,
+                Property::Position,
+                Value::Vector(DVec3::new(1.0, -2.0, 0.0)),
+            ),
         ]);
         assert_eq!(reference(1, Property::Position).evaluate(&ctx), None);
-        assert_eq!(reference(2, Property::Position).evaluate(&ctx), None);
         assert_eq!(reference(5, Property::Value).evaluate(&ctx), None);
     }
 
     #[test]
+    fn reference_reads_the_right_property_of_an_object() {
+        let p = Value::Vector(DVec3::new(1.0, -2.0, 0.0));
+        let ctx = ctx_with_objects(&[
+            (1, Property::Value, Value::Real(0.7)),
+            (1, Property::Position, p.clone()),
+        ]);
+        assert_eq!(
+            reference(1, Property::Value).evaluate(&ctx),
+            Some(Value::Real(0.7))
+        );
+        assert_eq!(reference(1, Property::Position).evaluate(&ctx), Some(p));
+    }
+
+    #[test]
+    fn reference_does_not_check_kind() {
+        let p = Value::Vector(DVec3::new(1.0, -2.0, 0.0));
+        let ctx = ctx_with_objects(&[(1, Property::Value, p.clone())]);
+        assert_eq!(reference(1, Property::Value).evaluate(&ctx), Some(p));
+    }
+
+    #[test]
     fn reference_to_missing_object_is_undefined() {
-        let ctx = ctx_with_objects(&[(1, Value::Real(0.7))]);
+        let ctx = ctx_with_objects(&[(1, Property::Value, Value::Real(0.7))]);
         assert_eq!(reference(2, Property::Value).evaluate(&ctx), None);
     }
 
     #[test]
     fn reference_reads_the_right_object() {
-        let ctx = ctx_with_objects(&[(1, Value::Real(1.0)), (2, Value::Real(2.0))]);
+        let ctx = ctx_with_objects(&[
+            (1, Property::Value, Value::Real(1.0)),
+            (2, Property::Value, Value::Real(2.0)),
+        ]);
         assert_eq!(
             reference(2, Property::Value).evaluate(&ctx),
             Some(Value::Real(2.0))
@@ -439,7 +460,9 @@ mod tests {
     #[test]
     fn vector_components_are_evaluated_in_context() {
         let ctx = EvalContext {
-            objects: [(ObjectId(1), Value::Real(5.0))].into_iter().collect(),
+            objects: [((ObjectId(1), Property::Value), Value::Real(5.0))]
+                .into_iter()
+                .collect(),
             variables: vec![("t".to_string(), Value::Real(0.5))],
             time: 0.0,
         };
@@ -502,8 +525,12 @@ mod tests {
     #[test]
     fn non_finite_leaves_are_undefined() {
         let mut ctx = ctx_with_objects(&[
-            (1, Value::Real(f64::INFINITY)),
-            (2, Value::Vector(DVec3::new(0.0, f64::NAN, 0.0))),
+            (1, Property::Value, Value::Real(f64::INFINITY)),
+            (
+                2,
+                Property::Position,
+                Value::Vector(DVec3::new(0.0, f64::NAN, 0.0)),
+            ),
         ]);
         ctx.variables.push((
             "x".to_string(),
@@ -537,7 +564,7 @@ mod tests {
     #[test]
     fn leaves_normalize_negative_zero() {
         let below_axis = Value::Complex(Complex::new(-4.0, -0.0));
-        let mut ctx = ctx_with_objects(&[(1, below_axis.clone())]);
+        let mut ctx = ctx_with_objects(&[(1, Property::Value, below_axis.clone())]);
         ctx.variables.push(("z".to_string(), below_axis.clone()));
         let pi = Some(Value::Real(std::f64::consts::PI));
         assert_eq!(arg_of(constant(below_axis), &ctx), pi);

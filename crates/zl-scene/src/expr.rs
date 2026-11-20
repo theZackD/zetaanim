@@ -55,7 +55,7 @@ pub enum BuiltInFn {
     Binomial,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Property {
     Value,
     Position,
