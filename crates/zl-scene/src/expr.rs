@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{ObjectId, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,4 +99,45 @@ pub enum Expr {
         y: Box<Expr>,
         z: Box<Expr>,
     },
+}
+
+impl Expr {
+    pub fn dependencies(&self) -> BTreeSet<ObjectId> {
+        let mut dependencies: BTreeSet<ObjectId> = BTreeSet::new();
+        self.collect_dependencies(&mut dependencies);
+        dependencies
+    }
+
+    fn collect_dependencies(&self, dependencies: &mut BTreeSet<ObjectId>) {
+        match self {
+            Expr::Constant(_) | Expr::Variable(_) => {}
+
+            Expr::Reference { object, .. } => {
+                dependencies.insert(*object);
+            }
+            Expr::Unary { arg, .. } => {
+                arg.collect_dependencies(dependencies);
+            }
+            Expr::Binary { left, right, .. } => {
+                left.collect_dependencies(dependencies);
+                right.collect_dependencies(dependencies);
+            }
+            Expr::Call { callee, args } => {
+                match callee {
+                    Callee::User(id) => {
+                        dependencies.insert(*id);
+                    }
+                    Callee::BuiltIn(_) => {}
+                }
+                for arg in args {
+                    arg.collect_dependencies(dependencies);
+                }
+            }
+            Expr::Vector { x, y, z } => {
+                x.collect_dependencies(dependencies);
+                y.collect_dependencies(dependencies);
+                z.collect_dependencies(dependencies);
+            }
+        }
+    }
 }
