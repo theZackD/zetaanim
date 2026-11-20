@@ -12,6 +12,8 @@ pub enum Origin {
 pub enum Construction {
     Point { position: Expr },
     Number { value: Expr },
+    Segment { start: Expr, end: Expr },
+    Circle { center: Expr, radius: Expr },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +43,26 @@ impl Construction {
                 match val {
                     Value::Complex(_) | Value::Real(_) => Some(ObjectValue::Number(val)),
                     Value::Vector(_) => None,
+                }
+            }
+
+            Construction::Segment { start, end } => {
+                let s = start.evaluate(ctx)?.as_vector()?;
+                let e = end.evaluate(ctx)?.as_vector()?;
+                Some(ObjectValue::Segment { start: s, end: e })
+            }
+
+            Construction::Circle { center, radius } => {
+                let c = center.evaluate(ctx)?.as_vector()?;
+                let r = radius.evaluate(ctx)?.as_real()?;
+
+                if r >= 0.0 {
+                    Some(ObjectValue::Circle {
+                        center: c,
+                        radius: r,
+                    })
+                } else {
+                    None
                 }
             }
         }
@@ -143,6 +165,36 @@ mod tests {
         Construction::Number { value }
     }
 
+    fn segment(start: Expr, end: Expr) -> Construction {
+        Construction::Segment { start, end }
+    }
+
+    fn circle(center: Expr, radius: Expr) -> Construction {
+        Construction::Circle { center, radius }
+    }
+
+    fn all_properties() -> [Property; 6] {
+        let all = [
+            Property::Value,
+            Property::Position,
+            Property::Start,
+            Property::End,
+            Property::Center,
+            Property::Radius,
+        ];
+        for property in all {
+            match property {
+                Property::Value
+                | Property::Position
+                | Property::Start
+                | Property::End
+                | Property::Center
+                | Property::Radius => {}
+            }
+        }
+        all
+    }
+
     fn ctx_with(entries: &[(u64, ObjectValue)]) -> EvalContext {
         EvalContext {
             objects: entries
@@ -186,15 +238,49 @@ mod tests {
 
     #[test]
     fn object_value_answers_only_its_own_properties() {
-        let number = ObjectValue::Number(complex(0.5, 14.13));
-        assert_eq!(number.property(Property::Value), Some(complex(0.5, 14.13)));
-        assert_eq!(number.property(Property::Position), None);
-        let point = ObjectValue::Point(DVec3::new(1.0, -2.0, 3.0));
-        assert_eq!(
-            point.property(Property::Position),
-            Some(vector(1.0, -2.0, 3.0))
-        );
-        assert_eq!(point.property(Property::Value), None);
+        let cases = [
+            (
+                ObjectValue::Number(complex(0.5, 14.13)),
+                vec![(Property::Value, complex(0.5, 14.13))],
+            ),
+            (
+                ObjectValue::Point(DVec3::new(1.0, -2.0, 3.0)),
+                vec![(Property::Position, vector(1.0, -2.0, 3.0))],
+            ),
+            (
+                ObjectValue::Segment {
+                    start: DVec3::new(1.0, 2.0, 0.0),
+                    end: DVec3::new(-3.0, 4.0, 5.0),
+                },
+                vec![
+                    (Property::Start, vector(1.0, 2.0, 0.0)),
+                    (Property::End, vector(-3.0, 4.0, 5.0)),
+                ],
+            ),
+            (
+                ObjectValue::Circle {
+                    center: DVec3::new(1.0, 1.0, 0.0),
+                    radius: 2.5,
+                },
+                vec![
+                    (Property::Center, vector(1.0, 1.0, 0.0)),
+                    (Property::Radius, real(2.5)),
+                ],
+            ),
+        ];
+        for (object, answers) in &cases {
+            for property in all_properties() {
+                let expected = answers
+                    .iter()
+                    .find(|(answered, _)| *answered == property)
+                    .map(|(_, value)| value.clone());
+                assert_eq!(
+                    object.property(property),
+                    expected,
+                    "{object:?} asked for {property:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -453,5 +539,330 @@ mod tests {
             ],
         ));
         assert_eq!(abscissa.evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn segment_exposes_each_endpoint_under_its_own_property() {
+        let ctx = EvalContext::default();
+        let result = segment(
+            constant(vector(1.0, 2.0, 0.0)),
+            constant(vector(-3.0, 4.0, 5.0)),
+        )
+        .evaluate(&ctx);
+        assert_eq!(
+            result,
+            Some(ObjectValue::Segment {
+                start: DVec3::new(1.0, 2.0, 0.0),
+                end: DVec3::new(-3.0, 4.0, 5.0),
+            })
+        );
+        assert_eq!(
+            property_of(result.clone(), Property::Start),
+            vector(1.0, 2.0, 0.0)
+        );
+        assert_eq!(property_of(result, Property::End), vector(-3.0, 4.0, 5.0));
+    }
+
+    #[test]
+    fn segment_with_coincident_endpoints_is_defined() {
+        let ctx = EvalContext::default();
+        assert_eq!(
+            segment(
+                constant(vector(2.0, 2.0, 0.0)),
+                constant(vector(2.0, 2.0, 0.0))
+            )
+            .evaluate(&ctx),
+            Some(ObjectValue::Segment {
+                start: DVec3::new(2.0, 2.0, 0.0),
+                end: DVec3::new(2.0, 2.0, 0.0),
+            })
+        );
+    }
+
+    #[test]
+    fn segment_endpoints_must_be_vectors() {
+        let ctx = EvalContext::default();
+        let good = || constant(vector(1.0, 0.0, 0.0));
+        for bad in [real(2.0), complex(1.0, 0.0), complex(1.0, 2.0)] {
+            assert_eq!(
+                segment(constant(bad.clone()), good()).evaluate(&ctx),
+                None,
+                "start = {bad:?}"
+            );
+            assert_eq!(
+                segment(good(), constant(bad.clone())).evaluate(&ctx),
+                None,
+                "end = {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn segment_with_an_undefined_endpoint_is_undefined() {
+        let ctx = EvalContext::default();
+        let good = || constant(vector(1.0, 0.0, 0.0));
+        let missing = || reference(7, Property::Position);
+        let division_by_zero = || {
+            vector_expr(
+                binary(BinaryOp::Div, constant(real(1.0)), constant(real(0.0))),
+                constant(real(0.0)),
+                constant(real(0.0)),
+            )
+        };
+        assert_eq!(segment(missing(), good()).evaluate(&ctx), None);
+        assert_eq!(segment(good(), missing()).evaluate(&ctx), None);
+        assert_eq!(segment(division_by_zero(), good()).evaluate(&ctx), None);
+        assert_eq!(segment(good(), division_by_zero()).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn segment_between_two_referenced_points() {
+        let ctx = ctx_with(&[
+            (0, ObjectValue::Point(DVec3::new(0.0, 0.0, 0.0))),
+            (1, ObjectValue::Point(DVec3::new(3.0, 4.0, 0.0))),
+        ]);
+        assert_eq!(
+            segment(
+                reference(1, Property::Position),
+                reference(0, Property::Position)
+            )
+            .evaluate(&ctx),
+            Some(ObjectValue::Segment {
+                start: DVec3::new(3.0, 4.0, 0.0),
+                end: DVec3::new(0.0, 0.0, 0.0),
+            })
+        );
+    }
+
+    #[test]
+    fn circle_exposes_its_center_and_radius() {
+        let ctx = EvalContext::default();
+        let result = circle(constant(vector(1.0, -1.0, 2.0)), constant(real(2.5))).evaluate(&ctx);
+        assert_eq!(
+            result,
+            Some(ObjectValue::Circle {
+                center: DVec3::new(1.0, -1.0, 2.0),
+                radius: 2.5,
+            })
+        );
+        assert_eq!(
+            property_of(result.clone(), Property::Center),
+            vector(1.0, -1.0, 2.0)
+        );
+        assert_eq!(property_of(result, Property::Radius), real(2.5));
+    }
+
+    #[test]
+    fn circle_with_zero_radius_is_defined() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(1.0, 1.0, 0.0));
+        let expected = Some(ObjectValue::Circle {
+            center: DVec3::new(1.0, 1.0, 0.0),
+            radius: 0.0,
+        });
+        assert_eq!(
+            circle(center(), constant(real(0.0))).evaluate(&ctx),
+            expected
+        );
+        let from_negative_zero = circle(center(), neg(constant(real(0.0)))).evaluate(&ctx);
+        assert_eq!(from_negative_zero, expected);
+        match property_of(from_negative_zero, Property::Radius) {
+            Value::Real(r) => assert!(!r.is_sign_negative()),
+            other => panic!("expected a real, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn circle_with_negative_radius_is_undefined_without_tolerance() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(0.0, 0.0, 0.0));
+        for radius in [-1.0, -1e-15, -f64::MIN_POSITIVE, -5e-324] {
+            assert_eq!(
+                circle(center(), constant(real(radius))).evaluate(&ctx),
+                None,
+                "radius = {radius:e}"
+            );
+        }
+    }
+
+    #[test]
+    fn circle_accepts_a_nearly_real_complex_radius_as_a_real() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(0.0, 0.0, 0.0));
+        for radius in [complex(2.0, 0.0), complex(2.0, 1e-12)] {
+            let result = circle(center(), constant(radius.clone())).evaluate(&ctx);
+            assert_eq!(
+                result,
+                Some(ObjectValue::Circle {
+                    center: DVec3::ZERO,
+                    radius: 2.0,
+                }),
+                "radius = {radius:?}"
+            );
+            assert_eq!(property_of(result, Property::Radius), real(2.0));
+        }
+    }
+
+    #[test]
+    fn circle_rejects_a_truly_complex_or_nearly_real_negative_radius() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(0.0, 0.0, 0.0));
+        assert_eq!(
+            circle(center(), constant(complex(2.0, 0.5))).evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            circle(center(), constant(complex(-1.0, 1e-12))).evaluate(&ctx),
+            None
+        );
+    }
+
+    #[test]
+    fn circle_needs_a_vector_center_and_a_number_radius() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(0.0, 0.0, 0.0));
+        let radius = || constant(real(1.0));
+        assert_eq!(
+            circle(center(), constant(vector(1.0, 0.0, 0.0))).evaluate(&ctx),
+            None
+        );
+        assert_eq!(circle(constant(real(1.0)), radius()).evaluate(&ctx), None);
+        assert_eq!(
+            circle(constant(complex(1.0, 1.0)), radius()).evaluate(&ctx),
+            None
+        );
+    }
+
+    #[test]
+    fn circle_with_an_undefined_center_or_radius_is_undefined() {
+        let ctx = EvalContext::default();
+        let center = || constant(vector(0.0, 0.0, 0.0));
+        let radius = || constant(real(1.0));
+        let sqrt_of_negative_real = call(BuiltInFn::Sqrt, vec![constant(real(-1.0))]);
+        assert_eq!(
+            circle(reference(7, Property::Position), radius()).evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            circle(center(), reference(7, Property::Value)).evaluate(&ctx),
+            None
+        );
+        assert_eq!(circle(center(), sqrt_of_negative_real).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn non_finite_endpoints_or_radius_are_undefined() {
+        let ctx = EvalContext::default();
+        let origin = || constant(vector(0.0, 0.0, 0.0));
+        assert_eq!(
+            segment(origin(), constant(vector(f64::NAN, 0.0, 0.0))).evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            circle(
+                constant(vector(0.0, f64::INFINITY, 0.0)),
+                constant(real(1.0))
+            )
+            .evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            circle(origin(), constant(real(f64::INFINITY))).evaluate(&ctx),
+            None
+        );
+        assert_eq!(
+            circle(origin(), constant(real(f64::NAN))).evaluate(&ctx),
+            None
+        );
+    }
+
+    #[test]
+    fn circle_centered_at_a_point_through_another() {
+        let ctx = ctx_with(&[
+            (0, ObjectValue::Point(DVec3::new(1.0, 1.0, 0.0))),
+            (1, ObjectValue::Point(DVec3::new(4.0, 5.0, 0.0))),
+        ]);
+        let radius = call(
+            BuiltInFn::Norm,
+            vec![binary(
+                BinaryOp::Sub,
+                reference(1, Property::Position),
+                reference(0, Property::Position),
+            )],
+        );
+        let result = circle(reference(0, Property::Position), radius).evaluate(&ctx);
+        assert_vector_close(property_of(result.clone(), Property::Center), 1.0, 1.0, 0.0);
+        assert_real_close(property_of(result, Property::Radius), 5.0);
+    }
+
+    #[test]
+    fn circle_with_radius_a_minus_one_vanishes_below_one_instead_of_bouncing() {
+        for (a, expected_radius) in [(2.0, Some(1.0)), (1.0, Some(0.0)), (0.5, None)] {
+            let ctx = ctx_with(&[(0, ObjectValue::Number(real(a)))]);
+            let radius = binary(
+                BinaryOp::Sub,
+                reference(0, Property::Value),
+                constant(real(1.0)),
+            );
+            assert_eq!(
+                circle(constant(vector(0.0, 0.0, 0.0)), radius).evaluate(&ctx),
+                expected_radius.map(|radius| ObjectValue::Circle {
+                    center: DVec3::ZERO,
+                    radius,
+                }),
+                "a = {a}"
+            );
+        }
+    }
+
+    #[test]
+    fn dependents_read_the_requested_property_of_a_segment_or_circle() {
+        let ctx = ctx_with(&[
+            (
+                0,
+                ObjectValue::Segment {
+                    start: DVec3::new(1.0, 2.0, 0.0),
+                    end: DVec3::new(5.0, 6.0, 0.0),
+                },
+            ),
+            (
+                1,
+                ObjectValue::Circle {
+                    center: DVec3::new(-1.0, 3.0, 0.0),
+                    radius: 4.0,
+                },
+            ),
+        ]);
+        assert_eq!(
+            point(reference(0, Property::Start)).evaluate(&ctx),
+            Some(ObjectValue::Point(DVec3::new(1.0, 2.0, 0.0)))
+        );
+        assert_eq!(
+            point(reference(0, Property::End)).evaluate(&ctx),
+            Some(ObjectValue::Point(DVec3::new(5.0, 6.0, 0.0)))
+        );
+        assert_eq!(
+            point(reference(1, Property::Center)).evaluate(&ctx),
+            Some(ObjectValue::Point(DVec3::new(-1.0, 3.0, 0.0)))
+        );
+        assert_eq!(
+            number(reference(1, Property::Radius)).evaluate(&ctx),
+            Some(ObjectValue::Number(real(4.0)))
+        );
+        assert_eq!(point(reference(1, Property::Radius)).evaluate(&ctx), None);
+        assert_eq!(number(reference(0, Property::Start)).evaluate(&ctx), None);
+        assert_eq!(point(reference(0, Property::Position)).evaluate(&ctx), None);
+    }
+
+    #[test]
+    fn undefined_circle_propagates_to_its_dependents() {
+        let mut ctx = EvalContext::default();
+        let vanished = circle(constant(vector(0.0, 0.0, 0.0)), constant(real(-1.0)));
+        assert_eq!(vanished.evaluate(&ctx), None);
+        if let Some(value) = vanished.evaluate(&ctx) {
+            store(&mut ctx, 0, value);
+        }
+        assert_eq!(point(reference(0, Property::Center)).evaluate(&ctx), None);
+        assert_eq!(number(reference(0, Property::Radius)).evaluate(&ctx), None);
     }
 }
