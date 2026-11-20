@@ -1,3 +1,5 @@
+use glam::DVec3;
+
 use crate::{EvalContext, Expr, Property, Value};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -13,6 +15,12 @@ pub enum Construction {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum ObjectValue {
+    Number(Value),
+    Point(DVec3),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Object {
     pub name: String,
     pub origin: Origin,
@@ -20,22 +28,37 @@ pub struct Object {
 }
 
 impl Construction {
-    pub fn evaluate(&self, ctx: &EvalContext) -> Option<Vec<(Property, Value)>> {
+    pub fn evaluate(&self, ctx: &EvalContext) -> Option<ObjectValue> {
         match self {
             Construction::Point { position } => {
                 let val = position.evaluate(ctx)?;
                 match val {
-                    Value::Vector(_) => Some(vec![(Property::Position, val)]),
+                    Value::Vector(v) => Some(ObjectValue::Point(v)),
                     Value::Complex(_) | Value::Real(_) => None,
                 }
             }
             Construction::Number { value } => {
                 let val = value.evaluate(ctx)?;
                 match val {
-                    Value::Complex(_) | Value::Real(_) => Some(vec![(Property::Value, val)]),
+                    Value::Complex(_) | Value::Real(_) => Some(ObjectValue::Number(val)),
                     Value::Vector(_) => None,
                 }
             }
+        }
+    }
+}
+
+impl ObjectValue {
+    pub fn property(&self, property: Property) -> Option<Value> {
+        match self {
+            ObjectValue::Number(n) => match property {
+                Property::Value => Some(n.clone()),
+                _ => None,
+            },
+            ObjectValue::Point(v) => match property {
+                Property::Position => Some(Value::Vector(*v)),
+                _ => None,
+            },
         }
     }
 }
@@ -111,31 +134,27 @@ mod tests {
         Construction::Number { value }
     }
 
-    fn ctx_with(entries: &[(u64, Property, Value)]) -> EvalContext {
+    fn ctx_with(entries: &[(u64, ObjectValue)]) -> EvalContext {
         EvalContext {
             objects: entries
                 .iter()
-                .map(|(id, property, value)| ((ObjectId(*id), *property), value.clone()))
+                .map(|(id, object)| (ObjectId(*id), object.clone()))
                 .collect(),
             ..EvalContext::default()
         }
     }
 
-    fn store(ctx: &mut EvalContext, id: u64, values: Vec<(Property, Value)>) {
-        for (property, value) in values {
-            ctx.objects.insert((ObjectId(id), property), value);
-        }
+    fn store(ctx: &mut EvalContext, id: u64, object: ObjectValue) {
+        ctx.objects.insert(ObjectId(id), object);
     }
 
-    fn single(result: Option<Vec<(Property, Value)>>, expected: Property) -> Value {
+    fn property_of(result: Option<ObjectValue>, property: Property) -> Value {
         match result {
-            Some(values) => {
-                assert_eq!(values.len(), 1, "expected one property, got {values:?}");
-                let (property, value) = values.into_iter().next().unwrap();
-                assert_eq!(property, expected);
-                value
-            }
-            None => panic!("expected a defined object with {expected:?}"),
+            Some(object) => match object.property(property) {
+                Some(value) => value,
+                None => panic!("{object:?} has no {property:?}"),
+            },
+            None => panic!("expected a defined object with {property:?}"),
         }
     }
 
@@ -157,43 +176,56 @@ mod tests {
     }
 
     #[test]
+    fn object_value_answers_only_its_own_properties() {
+        let number = ObjectValue::Number(complex(0.5, 14.13));
+        assert_eq!(number.property(Property::Value), Some(complex(0.5, 14.13)));
+        assert_eq!(number.property(Property::Position), None);
+        let point = ObjectValue::Point(DVec3::new(1.0, -2.0, 3.0));
+        assert_eq!(
+            point.property(Property::Position),
+            Some(vector(1.0, -2.0, 3.0))
+        );
+        assert_eq!(point.property(Property::Value), None);
+    }
+
+    #[test]
     fn point_with_constant_position_exposes_its_position() {
         let ctx = EvalContext::default();
         assert_eq!(
             point(constant(vector(1.0, -2.0, 3.0))).evaluate(&ctx),
-            Some(vec![(Property::Position, vector(1.0, -2.0, 3.0))])
+            Some(ObjectValue::Point(DVec3::new(1.0, -2.0, 3.0)))
         );
     }
 
     #[test]
     fn point_on_unit_circle_from_a_number() {
-        let ctx = ctx_with(&[(0, Property::Value, real(FRAC_PI_2))]);
+        let ctx = ctx_with(&[(0, ObjectValue::Number(real(FRAC_PI_2)))]);
         let theta = || reference(0, Property::Value);
         let position = vector_expr(
             call(BuiltInFn::Cos, vec![theta()]),
             call(BuiltInFn::Sin, vec![theta()]),
             constant(real(0.0)),
         );
-        let value = single(point(position).evaluate(&ctx), Property::Position);
+        let value = property_of(point(position).evaluate(&ctx), Property::Position);
         assert_vector_close(value, 0.0, 1.0, 0.0);
     }
 
     #[test]
     fn point_copies_another_point_position() {
-        let ctx = ctx_with(&[(0, Property::Position, vector(4.0, 5.0, 0.0))]);
+        let ctx = ctx_with(&[(0, ObjectValue::Point(DVec3::new(4.0, 5.0, 0.0)))]);
         assert_eq!(
             point(reference(0, Property::Position)).evaluate(&ctx),
-            Some(vec![(Property::Position, vector(4.0, 5.0, 0.0))])
+            Some(ObjectValue::Point(DVec3::new(4.0, 5.0, 0.0)))
         );
     }
 
     #[test]
     fn point_from_complex_through_explicit_conversion() {
-        let ctx = ctx_with(&[(0, Property::Value, complex(0.5, 14.13))]);
+        let ctx = ctx_with(&[(0, ObjectValue::Number(complex(0.5, 14.13)))]);
         let position = call(BuiltInFn::ToPoint, vec![reference(0, Property::Value)]);
         assert_eq!(
             point(position).evaluate(&ctx),
-            Some(vec![(Property::Position, vector(0.5, 14.13, 0.0))])
+            Some(ObjectValue::Point(DVec3::new(0.5, 14.13, 0.0)))
         );
     }
 
@@ -213,8 +245,8 @@ mod tests {
     #[test]
     fn point_referencing_a_number_is_undefined() {
         let ctx = ctx_with(&[
-            (0, Property::Value, real(3.0)),
-            (1, Property::Value, complex(1.0, 1.0)),
+            (0, ObjectValue::Number(real(3.0))),
+            (1, ObjectValue::Number(complex(1.0, 1.0))),
         ]);
         assert_eq!(point(reference(0, Property::Value)).evaluate(&ctx), None);
         assert_eq!(point(reference(1, Property::Value)).evaluate(&ctx), None);
@@ -238,7 +270,7 @@ mod tests {
         let ctx = EvalContext::default();
         assert_eq!(
             number(constant(real(0.7))).evaluate(&ctx),
-            Some(vec![(Property::Value, real(0.7))])
+            Some(ObjectValue::Number(real(0.7)))
         );
     }
 
@@ -247,7 +279,7 @@ mod tests {
         let ctx = EvalContext::default();
         assert_eq!(
             number(constant(complex(0.5, 14.13))).evaluate(&ctx),
-            Some(vec![(Property::Value, complex(0.5, 14.13))])
+            Some(ObjectValue::Number(complex(0.5, 14.13)))
         );
     }
 
@@ -256,13 +288,13 @@ mod tests {
         let ctx = EvalContext::default();
         assert_eq!(
             number(constant(complex(2.0, 0.0))).evaluate(&ctx),
-            Some(vec![(Property::Value, complex(2.0, 0.0))])
+            Some(ObjectValue::Number(complex(2.0, 0.0)))
         );
     }
 
     #[test]
     fn number_defined_by_another_number() {
-        let ctx = ctx_with(&[(0, Property::Value, real(2.0))]);
+        let ctx = ctx_with(&[(0, ObjectValue::Number(real(2.0)))]);
         let value = binary(
             BinaryOp::Add,
             binary(
@@ -274,7 +306,7 @@ mod tests {
         );
         assert_eq!(
             number(value).evaluate(&ctx),
-            Some(vec![(Property::Value, real(5.0))])
+            Some(ObjectValue::Number(real(5.0)))
         );
     }
 
@@ -286,7 +318,7 @@ mod tests {
 
     #[test]
     fn number_referencing_a_point_position_is_undefined() {
-        let ctx = ctx_with(&[(0, Property::Position, vector(1.0, 2.0, 0.0))]);
+        let ctx = ctx_with(&[(0, ObjectValue::Point(DVec3::new(1.0, 2.0, 0.0)))]);
         assert_eq!(
             number(reference(0, Property::Position)).evaluate(&ctx),
             None
@@ -296,8 +328,8 @@ mod tests {
     #[test]
     fn reference_to_a_property_the_object_does_not_have_is_undefined() {
         let ctx = ctx_with(&[
-            (0, Property::Position, vector(1.0, 2.0, 0.0)),
-            (1, Property::Value, real(3.0)),
+            (0, ObjectValue::Point(DVec3::new(1.0, 2.0, 0.0))),
+            (1, ObjectValue::Number(real(3.0))),
         ]);
         assert_eq!(number(reference(0, Property::Value)).evaluate(&ctx), None);
         assert_eq!(point(reference(1, Property::Position)).evaluate(&ctx), None);
@@ -329,8 +361,8 @@ mod tests {
     #[test]
     fn non_finite_referenced_values_make_objects_undefined() {
         let ctx = ctx_with(&[
-            (0, Property::Value, real(f64::NAN)),
-            (1, Property::Position, vector(0.0, f64::INFINITY, 0.0)),
+            (0, ObjectValue::Number(real(f64::NAN))),
+            (1, ObjectValue::Point(DVec3::new(0.0, f64::INFINITY, 0.0))),
         ]);
         assert_eq!(number(reference(0, Property::Value)).evaluate(&ctx), None);
         assert_eq!(point(reference(1, Property::Position)).evaluate(&ctx), None);
@@ -339,21 +371,21 @@ mod tests {
     #[test]
     fn evaluated_values_never_carry_negative_zero() {
         let ctx = EvalContext::default();
-        match single(
+        match property_of(
             number(neg(constant(real(0.0)))).evaluate(&ctx),
             Property::Value,
         ) {
             Value::Real(x) => assert!(!x.is_sign_negative()),
             other => panic!("expected a real, got {other:?}"),
         }
-        match single(
+        match property_of(
             number(neg(constant(complex(4.0, 0.0)))).evaluate(&ctx),
             Property::Value,
         ) {
             Value::Complex(z) => assert!(!z.im.is_sign_negative()),
             other => panic!("expected a complex, got {other:?}"),
         }
-        match single(
+        match property_of(
             point(neg(constant(vector(0.0, 0.0, 0.0)))).evaluate(&ctx),
             Property::Position,
         ) {
@@ -367,16 +399,16 @@ mod tests {
     #[test]
     fn results_can_be_stored_and_referenced_in_order() {
         let mut ctx = EvalContext::default();
-        let theta_values = number(constant(real(FRAC_PI_3))).evaluate(&ctx).unwrap();
-        store(&mut ctx, 0, theta_values);
+        let theta_value = number(constant(real(FRAC_PI_3))).evaluate(&ctx).unwrap();
+        store(&mut ctx, 0, theta_value);
         let theta = || reference(0, Property::Value);
         let on_circle = point(vector_expr(
             call(BuiltInFn::Cos, vec![theta()]),
             call(BuiltInFn::Sin, vec![theta()]),
             constant(real(0.0)),
         ));
-        let point_values = on_circle.evaluate(&ctx).unwrap();
-        store(&mut ctx, 1, point_values);
+        let point_value = on_circle.evaluate(&ctx).unwrap();
+        store(&mut ctx, 1, point_value);
         let abscissa = number(call(
             BuiltInFn::Dot,
             vec![
@@ -384,7 +416,7 @@ mod tests {
                 constant(vector(1.0, 0.0, 0.0)),
             ],
         ));
-        let value = single(abscissa.evaluate(&ctx), Property::Value);
+        let value = property_of(abscissa.evaluate(&ctx), Property::Value);
         assert_real_close(value, 0.5);
     }
 
@@ -392,8 +424,8 @@ mod tests {
     fn undefined_object_propagates_to_its_dependents() {
         let mut ctx = EvalContext::default();
         let theta = number(constant(vector(1.0, 0.0, 0.0)));
-        if let Some(values) = theta.evaluate(&ctx) {
-            store(&mut ctx, 0, values);
+        if let Some(value) = theta.evaluate(&ctx) {
+            store(&mut ctx, 0, value);
         }
         let on_circle = point(vector_expr(
             call(BuiltInFn::Cos, vec![reference(0, Property::Value)]),
@@ -401,8 +433,8 @@ mod tests {
             constant(real(0.0)),
         ));
         assert_eq!(on_circle.evaluate(&ctx), None);
-        if let Some(values) = on_circle.evaluate(&ctx) {
-            store(&mut ctx, 1, values);
+        if let Some(value) = on_circle.evaluate(&ctx) {
+            store(&mut ctx, 1, value);
         }
         let abscissa = number(call(
             BuiltInFn::Dot,
