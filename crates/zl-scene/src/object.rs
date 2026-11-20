@@ -18,6 +18,8 @@ pub enum Construction {
 pub enum ObjectValue {
     Number(Value),
     Point(DVec3),
+    Segment { start: DVec3, end: DVec3 },
+    Circle { center: DVec3, radius: f64 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -31,12 +33,9 @@ impl Construction {
     pub fn evaluate(&self, ctx: &EvalContext) -> Option<ObjectValue> {
         match self {
             Construction::Point { position } => {
-                let val = position.evaluate(ctx)?;
-                match val {
-                    Value::Vector(v) => Some(ObjectValue::Point(v)),
-                    Value::Complex(_) | Value::Real(_) => None,
-                }
+                Some(ObjectValue::Point(position.evaluate(ctx)?.as_vector()?))
             }
+
             Construction::Number { value } => {
                 let val = value.evaluate(ctx)?;
                 match val {
@@ -57,6 +56,16 @@ impl ObjectValue {
             },
             ObjectValue::Point(v) => match property {
                 Property::Position => Some(Value::Vector(*v)),
+                _ => None,
+            },
+            ObjectValue::Circle { center, radius } => match property {
+                Property::Center => Some(Value::Vector(*center)),
+                Property::Radius => Some(Value::Real(*radius)),
+                _ => None,
+            },
+            ObjectValue::Segment { start, end } => match property {
+                Property::Start => Some(Value::Vector(*start)),
+                Property::End => Some(Value::Vector(*end)),
                 _ => None,
             },
         }

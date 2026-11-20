@@ -59,6 +59,10 @@ pub enum BuiltInFn {
 pub enum Property {
     Value,
     Position,
+    Start,
+    End,
+    Center,
+    Radius,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

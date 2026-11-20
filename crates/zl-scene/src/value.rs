@@ -108,6 +108,13 @@ impl Value {
             Value::Complex(_) | Value::Vector(_) => None,
         }
     }
+
+    pub(crate) fn as_vector(&self) -> Option<DVec3> {
+        match self {
+            Value::Vector(v) => Some(*v),
+            Value::Real(_) | Value::Complex(_) => None,
+        }
+    }
 }
 
 fn without_negative_zero(x: f64) -> f64 {
