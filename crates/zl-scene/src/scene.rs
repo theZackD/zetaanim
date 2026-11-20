@@ -32,15 +32,15 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Construction, Origin};
+    use crate::{Construction, Expr, Origin, Value};
     use glam::DVec3;
 
     fn point(name: &str, x: f64, y: f64) -> Object {
         Object {
             name: name.to_string(),
             origin: Origin::Mouse,
-            construction: Construction::FreePoint {
-                position: DVec3::new(x, y, 0.0),
+            construction: Construction::Point {
+                position: Expr::Constant(Value::Vector(DVec3::new(x, y, 0.0))),
             },
         }
     }

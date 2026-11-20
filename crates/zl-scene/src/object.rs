@@ -1,4 +1,4 @@
-use glam::DVec3;
+use crate::Expr;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Origin {
@@ -8,8 +8,8 @@ pub enum Origin {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Construction {
-    FreePoint { position: DVec3 },
-    Number { value: f64 },
+    Point { position: Expr },
+    Number { value: Expr },
 }
 
 #[derive(Clone, Debug, PartialEq)]
