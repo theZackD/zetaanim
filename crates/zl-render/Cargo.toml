@@ -1,0 +1,10 @@
+[package]
+name = "zl-render"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+tiny-skia = { workspace = true }
+zl-primitives = {path = "../zl-primitives"}
+kurbo = { workspace = true }

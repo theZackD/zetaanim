@@ -5,7 +5,7 @@ pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
-    pub a: u8
+    pub a: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,4 +31,3 @@ pub struct Style {
 pub enum Primitive {
     Path { path: BezPath, style: Style },
 }
-

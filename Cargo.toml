@@ -14,3 +14,4 @@ members = ["crates/*"]
 glam = "0.34"
 num-complex = "0.4"
 kurbo = "0.13"
+tiny-skia = "0.12"
