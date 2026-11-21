@@ -7,3 +7,4 @@ license = "GPL-3.0-or-later"
 [dependencies]
 glam = { workspace = true }
 num-complex = { workspace = true }
+zl-primitives = { path = "../zl-primitives" }

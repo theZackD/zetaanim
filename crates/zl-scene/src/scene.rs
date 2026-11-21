@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{EvalContext, Object, ObjectId, ObjectValue};
+use crate::{Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue};
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Scene {
     next_id: u64,
     objects: BTreeMap<ObjectId, Object>,
+    canvas: Canvas,
+    camera: Camera,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,7 +110,9 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BinaryOp, BuiltInFn, Callee, Construction, Expr, Origin, Property, Value};
+    use crate::{
+        BinaryOp, BuiltInFn, Callee, Construction, Expr, ObjectStyle, Origin, Property, Value,
+    };
     use glam::DVec3;
     use num_complex::Complex;
     use std::f64::consts::{FRAC_PI_2, FRAC_PI_3};
@@ -120,6 +124,7 @@ mod tests {
             construction: Construction::Point {
                 position: Expr::Constant(Value::Vector(DVec3::new(x, y, 0.0))),
             },
+            style: ObjectStyle::default(),
         }
     }
 
@@ -186,6 +191,13 @@ mod tests {
         assert_eq!(Scene::new(), Scene::default());
     }
 
+    #[test]
+    fn new_scene_has_the_default_canvas_and_camera() {
+        let scene = Scene::new();
+        assert_eq!(scene.canvas, Canvas::default());
+        assert_eq!(scene.camera, Camera::default());
+    }
+
     fn reference(id: u64, property: Property) -> Expr {
         Expr::Reference {
             object: ObjectId(id),
@@ -206,6 +218,7 @@ mod tests {
             name: name.to_string(),
             origin: Origin::Mouse,
             construction: Construction::Point { position },
+            style: ObjectStyle::default(),
         }
     }
 
@@ -321,6 +334,7 @@ mod tests {
                 center: reference(1, Property::Position),
                 radius,
             },
+            style: ObjectStyle::default(),
         });
         scene.add(point("A", 0.0, 0.0));
         scene.add(point("B", 3.0, 4.0));
@@ -415,6 +429,7 @@ mod tests {
             name: name.to_string(),
             origin: Origin::Mouse,
             construction,
+            style: ObjectStyle::default(),
         }
     }
 

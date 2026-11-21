@@ -1,14 +1,20 @@
 mod builtin;
+mod camera;
+mod canvas;
 mod eval;
 mod expr;
 mod id;
 mod object;
 mod scene;
+mod style;
 mod value;
 
+pub use camera::*;
+pub use canvas::*;
 pub use eval::*;
 pub use expr::*;
 pub use id::*;
 pub use object::*;
 pub use scene::*;
+pub use style::*;
 pub use value::*;

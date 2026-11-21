@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use glam::DVec3;
 
-use crate::{EvalContext, Expr, ObjectId, Property, Value};
+use crate::{EvalContext, Expr, ObjectId, ObjectStyle, Property, Value};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Origin {
@@ -31,6 +31,7 @@ pub struct Object {
     pub name: String,
     pub origin: Origin,
     pub construction: Construction,
+    pub style: ObjectStyle,
 }
 
 impl Construction {
