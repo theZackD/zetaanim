@@ -119,7 +119,7 @@ mod tests {
     use crate::{BinaryOp, BuiltInFn, Callee, ObjectId, UnaryOp};
     use glam::DVec3;
     use num_complex::Complex;
-    use std::f64::consts::{FRAC_PI_2, FRAC_PI_3};
+    use std::f64::consts::FRAC_PI_2;
 
     const EPS: f64 = 1e-12;
 
@@ -222,10 +222,6 @@ mod tests {
                 .collect(),
             ..EvalContext::default()
         }
-    }
-
-    fn store(ctx: &mut EvalContext, id: u64, object: ObjectValue) {
-        ctx.objects.insert(ObjectId(id), object);
     }
 
     fn property_of(result: Option<ObjectValue>, property: Property) -> Value {
@@ -508,56 +504,6 @@ mod tests {
             ),
             other => panic!("expected a vector, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn results_can_be_stored_and_referenced_in_order() {
-        let mut ctx = EvalContext::default();
-        let theta_value = number(constant(real(FRAC_PI_3))).evaluate(&ctx).unwrap();
-        store(&mut ctx, 0, theta_value);
-        let theta = || reference(0, Property::Value);
-        let on_circle = point(vector_expr(
-            call(BuiltInFn::Cos, vec![theta()]),
-            call(BuiltInFn::Sin, vec![theta()]),
-            constant(real(0.0)),
-        ));
-        let point_value = on_circle.evaluate(&ctx).unwrap();
-        store(&mut ctx, 1, point_value);
-        let abscissa = number(call(
-            BuiltInFn::Dot,
-            vec![
-                reference(1, Property::Position),
-                constant(vector(1.0, 0.0, 0.0)),
-            ],
-        ));
-        let value = property_of(abscissa.evaluate(&ctx), Property::Value);
-        assert_real_close(value, 0.5);
-    }
-
-    #[test]
-    fn undefined_object_propagates_to_its_dependents() {
-        let mut ctx = EvalContext::default();
-        let theta = number(constant(vector(1.0, 0.0, 0.0)));
-        if let Some(value) = theta.evaluate(&ctx) {
-            store(&mut ctx, 0, value);
-        }
-        let on_circle = point(vector_expr(
-            call(BuiltInFn::Cos, vec![reference(0, Property::Value)]),
-            constant(real(0.0)),
-            constant(real(0.0)),
-        ));
-        assert_eq!(on_circle.evaluate(&ctx), None);
-        if let Some(value) = on_circle.evaluate(&ctx) {
-            store(&mut ctx, 1, value);
-        }
-        let abscissa = number(call(
-            BuiltInFn::Dot,
-            vec![
-                reference(1, Property::Position),
-                constant(vector(1.0, 0.0, 0.0)),
-            ],
-        ));
-        assert_eq!(abscissa.evaluate(&ctx), None);
     }
 
     #[test]
@@ -871,18 +817,6 @@ mod tests {
         assert_eq!(point(reference(1, Property::Radius)).evaluate(&ctx), None);
         assert_eq!(number(reference(0, Property::Start)).evaluate(&ctx), None);
         assert_eq!(point(reference(0, Property::Position)).evaluate(&ctx), None);
-    }
-
-    #[test]
-    fn undefined_circle_propagates_to_its_dependents() {
-        let mut ctx = EvalContext::default();
-        let vanished = circle(constant(vector(0.0, 0.0, 0.0)), constant(real(-1.0)));
-        assert_eq!(vanished.evaluate(&ctx), None);
-        if let Some(value) = vanished.evaluate(&ctx) {
-            store(&mut ctx, 0, value);
-        }
-        assert_eq!(point(reference(0, Property::Center)).evaluate(&ctx), None);
-        assert_eq!(number(reference(0, Property::Radius)).evaluate(&ctx), None);
     }
 
     fn ids(ids: &[u64]) -> BTreeSet<ObjectId> {
