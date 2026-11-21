@@ -2,7 +2,7 @@
 
 **English** | [Français](README.fr.md)
 
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](#license)
 [![Status: early development](https://img.shields.io/badge/status-early%20development-orange)](#roadmap)
 
 **ZetaAnim is an open-source mathematical animation engine written in Rust, with a visual editor and a scripting language.**
@@ -88,11 +88,8 @@ Feedback, bug reports and proposals are welcome through issues. A contribution g
 
 ## License
 
-ZetaAnim is licensed under either of:
+ZetaAnim is free software, licensed under the GNU General Public License, version 3 or (at your option) any later version. See [LICENSE](LICENSE) or <https://www.gnu.org/licenses/gpl-3.0.html>.
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+The videos and images you create with ZetaAnim are yours: the license covers the software, not what you make with it.
 
-at your option.
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you shall be licensed as above, without any additional terms or conditions.
