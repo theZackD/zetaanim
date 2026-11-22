@@ -6,6 +6,11 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 
+[dev-dependencies]
+zl-scene = { path = "crates/zl-scene" }
+zl-render = { path = "crates/zl-render" }
+zl-primitives = { path = "crates/zl-primitives" }
+glam = { workspace = true }
 
 [workspace]
 members = ["crates/*"]

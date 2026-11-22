@@ -126,6 +126,10 @@ impl Scene {
         }
         primitives
     }
+
+    pub fn canvas(&self) -> Canvas {
+        self.canvas
+    }
 }
 
 #[cfg(test)]

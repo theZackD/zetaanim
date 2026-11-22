@@ -213,6 +213,12 @@ dependencies = [
 [[package]]
 name = "zetaanim"
 version = "0.1.0"
+dependencies = [
+ "glam",
+ "zl-primitives",
+ "zl-render",
+ "zl-scene",
+]
 
 [[package]]
 name = "zl-math"
