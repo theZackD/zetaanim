@@ -1,5 +1,6 @@
 use kurbo::BezPath;
 
+pub const COORDINATE_LIMIT: f64 = 1e7;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,

@@ -2,9 +2,9 @@ use std::{io, path::Path};
 
 use kurbo::{BezPath, PathEl};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, StrokeDash, Transform};
-use zl_primitives::{Color, Primitive, Stroke};
+use zl_primitives::{COORDINATE_LIMIT, Color, Primitive, Stroke};
 
-const LIMIT: f32 = 1e7;
+const LIMIT: f32 = COORDINATE_LIMIT as f32;
 
 pub struct Image {
     pixmap: Pixmap,

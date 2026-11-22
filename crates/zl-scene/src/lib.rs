@@ -1,6 +1,7 @@
 mod builtin;
 mod camera;
 mod canvas;
+mod draw;
 mod eval;
 mod expr;
 mod id;

@@ -239,6 +239,7 @@ name = "zl-scene"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "kurbo",
  "num-complex",
  "zl-primitives",
 ]

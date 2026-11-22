@@ -1,6 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue};
+use zl_primitives::Primitive;
+
+use crate::{
+    Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue,
+    draw::{LAYER_COUNT, draw_layer, object_primitive},
+};
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Scene {
@@ -105,17 +110,36 @@ impl Scene {
             blocked,
         }
     }
+
+    pub fn primitives(&self, evaluated: &EvaluatedScene) -> Vec<Primitive> {
+        let mut primitives: Vec<Primitive> = Vec::new();
+        for layer in 0..LAYER_COUNT {
+            for (id, value) in &evaluated.values {
+                if let Some(object) = self.objects.get(id)
+                    && draw_layer(value, &object.style) == Some(layer)
+                    && let Some(primitive) =
+                        object_primitive(value, &object.style, &self.camera, &self.canvas)
+                {
+                    primitives.push(primitive);
+                }
+            }
+        }
+        primitives
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        BinaryOp, BuiltInFn, Callee, Construction, Expr, ObjectStyle, Origin, Property, Value,
+        BinaryOp, BuiltInFn, Callee, Construction, Expr, LineStyle, ObjectStyle, Origin, Property,
+        Value,
     };
     use glam::DVec3;
+    use kurbo::{ParamCurve, PathEl, Shape};
     use num_complex::Complex;
     use std::f64::consts::{FRAC_PI_2, FRAC_PI_3};
+    use zl_primitives::{Color, Dash, Stroke, Style};
 
     fn point(name: &str, x: f64, y: f64) -> Object {
         Object {
@@ -725,5 +749,365 @@ mod tests {
         scene.add(point("B", 2.0, 2.0));
         scene.add(point_at("P", position(3)));
         assert_eq!(scene.evaluate(0.0), scene.evaluate(0.0));
+    }
+
+    const FOREGROUND: Color = Color {
+        r: 30,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
+    const RED: Color = Color {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+
+    fn styled(mut object: Object, style: ObjectStyle) -> Object {
+        object.style = style;
+        object
+    }
+
+    fn circle_at(x: f64, y: f64, radius: f64) -> Object {
+        object(
+            "c",
+            Construction::Circle {
+                center: vector(x, y, 0.0),
+                radius: real(radius),
+            },
+        )
+    }
+
+    fn segment_between(start: (f64, f64), end: (f64, f64)) -> Object {
+        object(
+            "s",
+            Construction::Segment {
+                start: vector(start.0, start.1, 0.0),
+                end: vector(end.0, end.1, 0.0),
+            },
+        )
+    }
+
+    fn drawn(scene: &Scene) -> Vec<Primitive> {
+        scene.primitives(&scene.evaluate(0.0))
+    }
+
+    fn bounds_and_style(primitive: &Primitive) -> (kurbo::Rect, Style) {
+        match primitive {
+            Primitive::Path { path, style } => (path.bounding_box(), *style),
+        }
+    }
+
+    fn assert_disc(primitive: &Primitive, center: (f64, f64), radius: f64) {
+        let (bounds, _) = bounds_and_style(primitive);
+        let found = (bounds.center().x, bounds.center().y, bounds.width() / 2.0);
+        let tolerance = 0.1;
+        assert!(
+            (found.0 - center.0).abs() <= tolerance
+                && (found.1 - center.1).abs() <= tolerance
+                && (found.2 - radius).abs() <= tolerance
+                && (bounds.height() / 2.0 - radius).abs() <= tolerance,
+            "disc at ({}, {}) of radius {} instead of {center:?} and {radius}",
+            found.0,
+            found.1,
+            found.2
+        );
+    }
+
+    #[test]
+    fn point_becomes_a_filled_disc_of_fixed_size() {
+        let mut scene = Scene::new();
+        scene.add(point("A", 1.0, 1.0));
+        let primitives = drawn(&scene);
+        assert_eq!(primitives.len(), 1);
+        assert_disc(&primitives[0], (1095.0, 405.0), 8.0);
+        assert_eq!(
+            bounds_and_style(&primitives[0]).1,
+            Style {
+                stroke: None,
+                fill: Some(FOREGROUND),
+            }
+        );
+    }
+
+    #[test]
+    fn segment_becomes_a_stroke_through_the_camera() {
+        let mut scene = Scene::new();
+        scene.add(segment_between((0.0, 0.0), (1.0, 1.0)));
+        let primitives = drawn(&scene);
+        assert_eq!(primitives.len(), 1);
+        let Primitive::Path { path, style } = &primitives[0];
+        assert_eq!(
+            path.elements(),
+            &[
+                PathEl::MoveTo(kurbo::Point::new(960.0, 540.0)),
+                PathEl::LineTo(kurbo::Point::new(1095.0, 405.0)),
+            ]
+        );
+        assert_eq!(
+            *style,
+            Style {
+                stroke: Some(Stroke {
+                    color: FOREGROUND,
+                    width: 4.0,
+                    dash: None,
+                }),
+                fill: None,
+            }
+        );
+    }
+
+    #[test]
+    fn zoom_scales_a_circle_but_not_a_point() {
+        let mut scene = Scene::new();
+        scene.add(circle_at(0.0, 0.0, 1.0));
+        scene.add(point("A", 0.0, 0.0));
+        let primitives = drawn(&scene);
+        assert_disc(&primitives[0], (960.0, 540.0), 135.0);
+        assert_disc(&primitives[1], (960.0, 540.0), 8.0);
+        scene.camera.extent = 4.0;
+        let zoomed = drawn(&scene);
+        assert_disc(&zoomed[0], (960.0, 540.0), 270.0);
+        assert_disc(&zoomed[1], (960.0, 540.0), 8.0);
+    }
+
+    #[test]
+    fn missing_color_follows_the_canvas_foreground() {
+        let mut scene = Scene::new();
+        scene.add(point("A", 0.0, 0.0));
+        scene.add(styled(
+            point("B", 1.0, 0.0),
+            ObjectStyle {
+                color: Some(RED),
+                ..ObjectStyle::default()
+            },
+        ));
+        let fills = |scene: &Scene| -> Vec<Option<Color>> {
+            drawn(scene)
+                .iter()
+                .map(|primitive| bounds_and_style(primitive).1.fill)
+                .collect()
+        };
+        assert_eq!(fills(&scene), vec![Some(FOREGROUND), Some(RED)]);
+        let white = Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        scene.canvas.foreground = white;
+        assert_eq!(fills(&scene), vec![Some(white), Some(RED)]);
+    }
+
+    #[test]
+    fn filled_circle_keeps_its_fill_and_its_stroke() {
+        let mut scene = Scene::new();
+        scene.add(styled(
+            circle_at(0.0, 0.0, 1.0),
+            ObjectStyle {
+                fill: Some(RED),
+                ..ObjectStyle::default()
+            },
+        ));
+        let primitives = drawn(&scene);
+        let (_, style) = bounds_and_style(&primitives[0]);
+        assert_eq!(style.fill, Some(RED));
+        assert_eq!(style.stroke.map(|stroke| stroke.color), Some(FOREGROUND));
+    }
+
+    #[test]
+    fn dash_lengths_follow_the_width() {
+        let cases = [
+            (LineStyle::Solid, None),
+            (LineStyle::Dashed, Some(Dash { on: 8.0, off: 6.0 })),
+            (LineStyle::Dotted, Some(Dash { on: 2.0, off: 4.0 })),
+        ];
+        for (line, expected) in cases {
+            let mut scene = Scene::new();
+            scene.add(styled(
+                segment_between((0.0, 0.0), (1.0, 0.0)),
+                ObjectStyle {
+                    width: 2.0,
+                    line,
+                    ..ObjectStyle::default()
+                },
+            ));
+            let (_, style) = bounds_and_style(&drawn(&scene)[0]);
+            assert_eq!(
+                style.stroke.and_then(|stroke| stroke.dash),
+                expected,
+                "{line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn filled_objects_come_first_and_points_last() {
+        let mut scene = Scene::new();
+        scene.add(point("A", 0.0, 0.0));
+        scene.add(segment_between((0.0, 0.0), (1.0, 0.0)));
+        scene.add(styled(
+            circle_at(0.0, 0.0, 1.0),
+            ObjectStyle {
+                fill: Some(RED),
+                ..ObjectStyle::default()
+            },
+        ));
+        scene.add(circle_at(0.0, 0.0, 2.0));
+        scene.add(point("B", 1.0, 0.0));
+        let evaluated = scene.evaluate(0.0);
+        let alone = |id: u64| {
+            let object = &scene.objects[&ObjectId(id)];
+            crate::draw::object_primitive(
+                &evaluated.values[&ObjectId(id)],
+                &object.style,
+                &scene.camera,
+                &scene.canvas,
+            )
+            .expect("drawable object")
+        };
+        assert_eq!(
+            scene.primitives(&evaluated),
+            vec![alone(2), alone(1), alone(3), alone(0), alone(4)]
+        );
+    }
+
+    #[test]
+    fn numbers_blocked_and_undefined_objects_are_not_drawn() {
+        let mut scene = Scene::new();
+        scene.add(number_of("a", real(2.0)));
+        scene.add(point_at("P", position(2)));
+        scene.add(point_at("Q", position(1)));
+        scene.add(circle_at(0.0, 0.0, -1.0));
+        scene.add(point("A", 1.0, 1.0));
+        let evaluated = scene.evaluate(0.0);
+        assert_eq!(evaluated.blocked, id_set(&[1, 2]));
+        let primitives = scene.primitives(&evaluated);
+        assert_eq!(primitives.len(), 1);
+        assert_disc(&primitives[0], (1095.0, 405.0), 8.0);
+    }
+
+    #[test]
+    fn invalid_camera_draws_nothing_but_keeps_the_values() {
+        let mut scene = Scene::new();
+        scene.add(point("A", 1.0, 1.0));
+        scene.add(circle_at(0.0, 0.0, 1.0));
+        for extent in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            scene.camera.extent = extent;
+            let evaluated = scene.evaluate(0.0);
+            assert_eq!(defined(&evaluated), ids(&[0, 1]), "extent = {extent}");
+            assert!(scene.primitives(&evaluated).is_empty(), "extent = {extent}");
+        }
+    }
+
+    #[test]
+    fn point_with_an_invalid_radius_keeps_its_value_and_its_dependents() {
+        for radius in [-8.0, f64::NAN, 0.0, -1e300, 1e300] {
+            let mut scene = Scene::new();
+            scene.add(styled(
+                point("A", 0.0, 0.0),
+                ObjectStyle {
+                    point_radius: radius,
+                    ..ObjectStyle::default()
+                },
+            ));
+            scene.add(point("B", 1.0, 0.0));
+            scene.add(object(
+                "AB",
+                Construction::Segment {
+                    start: position(0),
+                    end: position(1),
+                },
+            ));
+            let evaluated = scene.evaluate(0.0);
+            assert_eq!(defined(&evaluated), ids(&[0, 1, 2]), "radius = {radius}");
+            let primitives = scene.primitives(&evaluated);
+            assert_eq!(primitives.len(), 2, "radius = {radius}");
+            assert!(bounds_and_style(&primitives[0]).1.stroke.is_some());
+            assert_disc(&primitives[1], (1095.0, 540.0), 8.0);
+        }
+    }
+
+    #[test]
+    fn invalid_width_removes_the_stroke_but_keeps_the_fill() {
+        for width in [0.0, -1.0, f64::NAN, f64::INFINITY, 1e300] {
+            let invalid = ObjectStyle {
+                width,
+                ..ObjectStyle::default()
+            };
+            let mut scene = Scene::new();
+            scene.add(styled(
+                circle_at(0.0, 0.0, 1.0),
+                ObjectStyle {
+                    fill: Some(RED),
+                    ..invalid
+                },
+            ));
+            scene.add(styled(circle_at(0.0, 0.0, 2.0), invalid));
+            scene.add(styled(segment_between((0.0, 0.0), (1.0, 0.0)), invalid));
+            let primitives = drawn(&scene);
+            assert_eq!(primitives.len(), 1, "width = {width}");
+            assert_eq!(
+                bounds_and_style(&primitives[0]).1,
+                Style {
+                    stroke: None,
+                    fill: Some(RED),
+                },
+                "width = {width}"
+            );
+        }
+    }
+
+    #[test]
+    fn circle_beyond_the_limit_is_skipped_without_hanging() {
+        let mut scene = Scene::new();
+        scene.add(circle_at(0.0, 0.0, 1e300));
+        scene.add(circle_at(0.0, 0.0, 1e6));
+        scene.add(circle_at(0.0, 0.0, 7e4));
+        scene.add(circle_at(0.0, 0.0, 0.0));
+        let evaluated = scene.evaluate(0.0);
+        assert_eq!(defined(&evaluated), ids(&[0, 1, 2, 3]));
+        let primitives = scene.primitives(&evaluated);
+        assert_eq!(primitives.len(), 1);
+        assert_disc(&primitives[0], (960.0, 540.0), 7e4 * 135.0);
+    }
+
+    #[test]
+    fn fill_is_ignored_for_points_and_segments() {
+        let filled_red = ObjectStyle {
+            fill: Some(RED),
+            ..ObjectStyle::default()
+        };
+        let mut scene = Scene::new();
+        scene.add(styled(segment_between((0.0, 0.0), (1.0, 0.0)), filled_red));
+        scene.add(styled(point("A", 0.0, 0.0), filled_red));
+        let primitives = drawn(&scene);
+        assert_eq!(primitives.len(), 2);
+        assert_eq!(bounds_and_style(&primitives[0]).1.fill, None);
+        assert_eq!(bounds_and_style(&primitives[1]).1.fill, Some(FOREGROUND));
+    }
+
+    #[test]
+    fn large_circle_stays_within_the_drawing_tolerance() {
+        let mut scene = Scene::new();
+        scene.add(circle_at(0.0, 0.0, 30.0));
+        let primitives = drawn(&scene);
+        let Primitive::Path { path, .. } = &primitives[0];
+        let center = kurbo::Point::new(960.0, 540.0);
+        let radius = 30.0 * 135.0;
+        let mut checked = 0;
+        for segment in path.segments() {
+            for step in 0..=20 {
+                let t = f64::from(step) / 20.0;
+                let distance = segment.eval(t).distance(center);
+                assert!(
+                    (distance - radius).abs() <= 0.1,
+                    "point at {distance} from the center, radius {radius}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 4 * 21, "{checked} samples");
     }
 }
