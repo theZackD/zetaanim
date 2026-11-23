@@ -1025,3 +1025,154 @@ fn large_circle_stays_within_the_drawing_tolerance() {
     }
     assert!(checked > 4 * 21, "{checked} samples");
 }
+
+fn graph_object(name: &str, expression: Expr, from: f64, to: f64) -> Object {
+    object(
+        name,
+        Construction::Graph {
+            variable: "x".to_string(),
+            expression,
+            from: real(from),
+            to: real(to),
+        },
+    )
+}
+
+fn variable_x() -> Expr {
+    Expr::Variable("x".to_string())
+}
+
+fn move_count(primitive: &Primitive) -> usize {
+    let Primitive::Path { path, .. } = primitive;
+    path.elements()
+        .iter()
+        .filter(|element| matches!(element, PathEl::MoveTo(_)))
+        .count()
+}
+
+#[test]
+fn graph_becomes_a_stroked_path_drawn_before_the_points() {
+    let mut scene = Scene::new();
+    scene.add(point("A", 0.0, 0.0));
+    scene.add(styled(
+        graph_object("f", variable_x(), -1.0, 1.0),
+        ObjectStyle {
+            line: LineStyle::Dashed,
+            fill: Some(RED),
+            ..ObjectStyle::default()
+        },
+    ));
+    let primitives = drawn(&scene);
+    assert_eq!(primitives.len(), 2);
+    let (bounds, style) = bounds_and_style(&primitives[0]);
+    assert_eq!(
+        style,
+        Style {
+            stroke: Some(Stroke {
+                color: FOREGROUND,
+                width: 4.0,
+                dash: Some(Dash {
+                    on: 16.0,
+                    off: 12.0
+                }),
+            }),
+            fill: None,
+        }
+    );
+    assert_eq!(
+        (bounds.x0, bounds.y0, bounds.x1, bounds.y1),
+        (825.0, 405.0, 1095.0, 675.0)
+    );
+    assert_disc(&primitives[1], (960.0, 540.0), 8.0);
+}
+
+#[test]
+fn graph_with_holes_lifts_the_pen_between_pieces() {
+    let mut scene = Scene::new();
+    let inverse = binary(BinaryOp::Div, real(1.0), variable_x());
+    scene.add(graph_object("1/x", inverse, -2.0, 2.0));
+    let primitives = drawn(&scene);
+    assert_eq!(primitives.len(), 1);
+    assert_eq!(move_count(&primitives[0]), 2);
+}
+
+#[test]
+fn graph_reads_a_number_of_the_scene() {
+    let mut scene = Scene::new();
+    scene.add(number_of("a", real(0.5)));
+    scene.add(graph_object(
+        "a x",
+        binary(BinaryOp::Mul, value(0), variable_x()),
+        -2.0,
+        2.0,
+    ));
+    let primitives = drawn(&scene);
+    let (bounds, _) = bounds_and_style(&primitives[0]);
+    assert_eq!(
+        (bounds.x0, bounds.y0, bounds.x1, bounds.y1),
+        (690.0, 405.0, 1230.0, 675.0)
+    );
+}
+
+#[test]
+fn parametric_circle_follows_the_camera_scale() {
+    let mut scene = Scene::new();
+    let t = || Expr::Variable("t".to_string());
+    scene.add(object(
+        "circle",
+        Construction::Curve {
+            variable: "t".to_string(),
+            position: vector_of(
+                call(BuiltInFn::Cos, vec![t()]),
+                call(BuiltInFn::Sin, vec![t()]),
+                real(0.0),
+            ),
+            from: real(0.0),
+            to: real(6.0),
+        },
+    ));
+    let primitives = drawn(&scene);
+    let Primitive::Path { path, .. } = &primitives[0];
+    let center = kurbo::Point::new(960.0, 540.0);
+    for element in path.elements() {
+        if let PathEl::MoveTo(p) | PathEl::LineTo(p) = element {
+            assert!((p.distance(center) - 135.0).abs() < 1e-9, "{p:?}");
+        }
+    }
+}
+
+#[test]
+fn graph_without_anything_to_draw_produces_no_primitive() {
+    let mut scene = Scene::new();
+    scene.add(graph_object(
+        "never defined",
+        call(BuiltInFn::Sqrt, vec![real(-1.0)]),
+        0.0,
+        1.0,
+    ));
+    scene.add(graph_object("reversed", variable_x(), 1.0, 0.0));
+    scene.add(graph_object(
+        "missing object",
+        binary(BinaryOp::Mul, value(42), variable_x()),
+        0.0,
+        1.0,
+    ));
+    scene.add(styled(
+        graph_object("no stroke", variable_x(), 0.0, 1.0),
+        ObjectStyle {
+            width: f64::NAN,
+            ..ObjectStyle::default()
+        },
+    ));
+    assert!(drawn(&scene).is_empty());
+}
+
+#[test]
+fn graph_is_not_drawn_with_an_invalid_camera() {
+    let mut scene = Scene::new();
+    scene.add(graph_object("f", variable_x(), -1.0, 1.0));
+    scene.camera.extent = 0.0;
+    let evaluated = scene.evaluate(0.0);
+    assert_eq!(defined(&evaluated), ids(&[0]));
+    assert!(scene.primitives(&evaluated).is_empty());
+}
