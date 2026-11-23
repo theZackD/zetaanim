@@ -1,5 +1,5 @@
 use glam::{DVec2, DVec3};
-use kurbo::{BezPath, Circle, Line, Shape};
+use kurbo::{BezPath, Circle, Line, Rect, Shape};
 use zl_primitives::{COORDINATE_LIMIT, Color, Dash, Primitive, Stroke, Style};
 
 use crate::{
@@ -178,13 +178,9 @@ impl Sampler<'_> {
     fn off_screen(&self, a: DVec2, m: DVec2, b: DVec2) -> bool {
         let low = a.min(m).min(b);
         let high = a.max(m).max(b);
-        let width = f64::from(self.canvas.format.width());
-        let height = f64::from(self.canvas.format.height());
+        let area = visible_area(self.canvas, self.margin);
 
-        high.x < -self.margin
-            || high.y < -self.margin
-            || low.x > width + self.margin
-            || low.y > height + self.margin
+        high.x < area.x0 || high.y < area.y0 || low.x > area.x1 || low.y > area.y1
     }
 
     fn refine(&mut self, a: Sample, m: Sample, b: Sample, depth: u32) {
@@ -325,6 +321,15 @@ fn is_jump(a: DVec2, q1: DVec2, m: DVec2, q3: DVec2, b: DVec2) -> bool {
         .max(m.distance(q3))
         .max(q3.distance(b));
     half > 2.0 * TOLERANCE && quarter >= JUMP_RATIO * half
+}
+
+fn visible_area(canvas: &Canvas, margin: f64) -> Rect {
+    Rect::new(
+        -margin,
+        -margin,
+        f64::from(canvas.format.width()) + margin,
+        f64::from(canvas.format.height()) + margin,
+    )
 }
 
 #[cfg(test)]
