@@ -1142,6 +1142,34 @@ fn parametric_circle_follows_the_camera_scale() {
 }
 
 #[test]
+fn graph_just_outside_the_canvas_is_refined_under_a_thick_stroke() {
+    let ripple = binary(
+        BinaryOp::Mul,
+        real(0.003),
+        call(
+            BuiltInFn::Sin,
+            vec![binary(BinaryOp::Mul, real(200.0), variable_x())],
+        ),
+    );
+    let wave = binary(BinaryOp::Add, real(4.0 + 1.0 / 135.0), ripple);
+    let element_count = |width: f64| {
+        let mut scene = Scene::new();
+        scene.add(styled(
+            graph_object("wave", wave.clone(), -1.0, 1.0),
+            ObjectStyle {
+                width,
+                ..ObjectStyle::default()
+            },
+        ));
+        let primitives = drawn(&scene);
+        let Primitive::Path { path, .. } = &primitives[0];
+        path.elements().len()
+    };
+    let (thin, thick) = (element_count(1.0), element_count(4.0));
+    assert!(thick > 2 * thin, "{thin} then {thick}");
+}
+
+#[test]
 fn graph_without_anything_to_draw_produces_no_primitive() {
     let mut scene = Scene::new();
     scene.add(graph_object(

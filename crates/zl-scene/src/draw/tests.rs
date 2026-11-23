@@ -204,6 +204,244 @@ fn graph_reads_the_objects_of_the_scene() {
     );
 }
 
+fn grid_step(from: f64, to: f64) -> f64 {
+    (to - from) / f64::from(GRID)
+}
+
+#[test]
+fn grid_starts_and_ends_exactly_on_the_bounds() {
+    assert_eq!(grid_parameter(-1.3, 2.7, 0), -1.3);
+    assert_eq!(grid_parameter(-1.3, 2.7, GRID), 2.7);
+}
+
+#[test]
+fn grid_steps_are_irregular_but_stay_within_half_a_step() {
+    let (from, to) = (-1.3, 2.7);
+    let step = grid_step(from, to);
+    let steps: Vec<f64> = (1..=GRID)
+        .map(|i| grid_parameter(from, to, i) - grid_parameter(from, to, i - 1))
+        .collect();
+    for (i, s) in steps.iter().enumerate() {
+        assert!(*s > 0.5 * step && *s < 1.5 * step, "step {i}: {s}");
+    }
+    let inner = &steps[1..steps.len() - 1];
+    let widest = inner.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let narrowest = inner.iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(widest - narrowest > 0.5 * step, "{narrowest} .. {widest}");
+}
+
+#[test]
+fn distance_to_segment_is_measured_to_the_nearest_point_of_the_segment() {
+    let (a, b) = (DVec2::ZERO, DVec2::new(10.0, 0.0));
+    assert_eq!(distance_to_segment(DVec2::new(5.0, 3.0), a, b), 3.0);
+    assert_eq!(distance_to_segment(DVec2::new(15.0, 0.0), a, b), 5.0);
+    assert_eq!(distance_to_segment(DVec2::new(-3.0, 4.0), a, b), 5.0);
+    let oblique = distance_to_segment(DVec2::new(0.0, 10.0), a, DVec2::new(10.0, 10.0));
+    assert!((oblique - 50f64.sqrt()).abs() < 1e-12, "{oblique}");
+}
+
+#[test]
+fn distance_to_a_degenerate_segment_is_the_distance_to_its_point() {
+    let a = DVec2::new(1.0, 1.0);
+    assert_eq!(distance_to_segment(DVec2::new(4.0, 5.0), a, a), 5.0);
+}
+
+#[test]
+fn jump_does_not_shrink_when_the_interval_is_halved() {
+    let p = DVec2::new;
+    let cases = [
+        (
+            "straight",
+            [
+                p(0.0, 0.0),
+                p(2.5, 0.0),
+                p(5.0, 0.0),
+                p(7.5, 0.0),
+                p(10.0, 0.0),
+            ],
+            false,
+        ),
+        (
+            "step",
+            [
+                p(0.0, 0.0),
+                p(0.001, 0.0),
+                p(0.002, 0.0),
+                p(0.003, 135.0),
+                p(0.004, 135.0),
+            ],
+            true,
+        ),
+        (
+            "pole",
+            [
+                p(0.0, 5000.0),
+                p(0.001, 9000.0),
+                p(0.002, -9000.0),
+                p(0.003, -5000.0),
+                p(0.004, -3000.0),
+            ],
+            true,
+        ),
+        (
+            "root edge",
+            [
+                p(0.0, 0.0),
+                p(0.001, 0.5),
+                p(0.002, 0.707),
+                p(0.003, 0.866),
+                p(0.004, 1.0),
+            ],
+            false,
+        ),
+        (
+            "corner",
+            [
+                p(0.0, 12.5),
+                p(1.0, 7.5),
+                p(2.0, 2.5),
+                p(3.0, 2.5),
+                p(4.0, 7.5),
+            ],
+            false,
+        ),
+        (
+            "short chord",
+            [
+                p(0.0, 0.0),
+                p(0.0, 0.0),
+                p(0.0, 0.0),
+                p(0.0, 0.0),
+                p(0.0, 0.15),
+            ],
+            false,
+        ),
+        (
+            "almost all",
+            [
+                p(0.0, 0.0),
+                p(0.0, 0.05),
+                p(0.0, 10.0),
+                p(0.0, 10.0),
+                p(0.0, 10.0),
+            ],
+            true,
+        ),
+        (
+            "most",
+            [
+                p(0.0, 0.0),
+                p(0.0, 0.5),
+                p(0.0, 10.0),
+                p(0.0, 10.0),
+                p(0.0, 10.0),
+            ],
+            false,
+        ),
+    ];
+    for (name, [a, q1, m, q3, b], expected) in cases {
+        assert_eq!(is_jump(a, q1, m, q3, b), expected, "{name}");
+    }
+}
+
+fn sampler<'a>(
+    construction: &'a Construction,
+    ctx: &'a mut EvalContext,
+    camera: &'a Camera,
+    canvas: &'a Canvas,
+) -> Sampler<'a> {
+    Sampler {
+        construction,
+        ctx,
+        camera,
+        canvas,
+        margin: 2.0,
+        pieces: Vec::new(),
+        current: Vec::new(),
+    }
+}
+
+#[test]
+fn emit_lifts_the_pen_and_drops_single_points() {
+    let (construction, camera, canvas) = (graph_of(x()), Camera::default(), Canvas::default());
+    let mut ctx = EvalContext::default();
+    let mut sampler = sampler(&construction, &mut ctx, &camera, &canvas);
+    let (a, b, c) = (DVec2::X, DVec2::Y, DVec2::ONE);
+    for point in [Some(a), Some(b), None, Some(c), None, None] {
+        sampler.emit(point);
+    }
+    assert_eq!(sampler.pieces, vec![vec![a, b]]);
+    assert!(sampler.current.is_empty());
+}
+
+#[test]
+fn off_screen_means_beyond_one_edge_and_its_margin() {
+    let (construction, camera, canvas) = (graph_of(x()), Camera::default(), Canvas::default());
+    let mut ctx = EvalContext::default();
+    let sampler = sampler(&construction, &mut ctx, &camera, &canvas);
+    let p = DVec2::new;
+    let cases = [
+        (
+            "left",
+            [p(-3.0, 10.0), p(-50.0, 500.0), p(-9.0, 2000.0)],
+            true,
+        ),
+        (
+            "right",
+            [p(1923.0, 10.0), p(5000.0, 500.0), p(1925.0, -70.0)],
+            true,
+        ),
+        (
+            "above",
+            [p(100.0, -50.0), p(300.0, -400.0), p(500.0, -3.0)],
+            true,
+        ),
+        (
+            "below",
+            [p(100.0, 1083.0), p(300.0, 9000.0), p(-500.0, 1090.0)],
+            true,
+        ),
+        (
+            "inside the left margin",
+            [p(-1.0, 10.0), p(-50.0, 500.0), p(-9.0, 2000.0)],
+            false,
+        ),
+        (
+            "inside the right margin",
+            [p(1921.0, 10.0), p(5000.0, 500.0), p(1925.0, -70.0)],
+            false,
+        ),
+        (
+            "inside the top margin",
+            [p(100.0, -1.0), p(300.0, -400.0), p(500.0, -90.0)],
+            false,
+        ),
+        (
+            "inside the bottom margin",
+            [p(100.0, 1081.0), p(300.0, 9000.0), p(-500.0, 1090.0)],
+            false,
+        ),
+        (
+            "back inside",
+            [p(100.0, -50.0), p(300.0, 600.0), p(500.0, -90.0)],
+            false,
+        ),
+        (
+            "around a corner",
+            [p(-10.0, 5.0), p(-5.0, -5.0), p(5.0, -10.0)],
+            false,
+        ),
+        (
+            "two sides",
+            [p(-10.0, 500.0), p(500.0, -10.0), p(-10.0, -10.0)],
+            false,
+        ),
+    ];
+    for (name, [a, m, b], expected) in cases {
+        assert_eq!(sampler.off_screen(a, m, b), expected, "{name}");
+    }
+}
+
 fn pieces_of(construction: &Construction, from: f64, to: f64) -> Vec<Vec<DVec2>> {
     let mut ctx = EvalContext::default();
     sample_pieces(
@@ -213,38 +451,308 @@ fn pieces_of(construction: &Construction, from: f64, to: f64) -> Vec<Vec<DVec2>>
         &Camera::default(),
         &Canvas::default(),
         &mut ctx,
+        2.0,
     )
 }
 
+fn sub(left: Expr, right: Expr) -> Expr {
+    binary(BinaryOp::Sub, left, right)
+}
+
+fn mul(left: Expr, right: Expr) -> Expr {
+    binary(BinaryOp::Mul, left, right)
+}
+
+fn div(left: Expr, right: Expr) -> Expr {
+    binary(BinaryOp::Div, left, right)
+}
+
+fn call(f: BuiltInFn, arg: Expr) -> Expr {
+    builtin(f, vec![arg])
+}
+
+fn assert_near(p: DVec2, expected: (f64, f64)) {
+    let expected = DVec2::new(expected.0, expected.1);
+    assert!(p.distance(expected) < 0.01, "{p} instead of {expected}");
+}
+
+fn crosses(pieces: &[Vec<DVec2>], x: f64) -> bool {
+    pieces
+        .iter()
+        .any(|piece| piece.windows(2).any(|s| (s[0].x - x) * (s[1].x - x) < 0.0))
+}
+
 #[test]
-fn defined_graph_is_one_piece_of_regular_samples_through_the_camera() {
+fn straight_graph_is_one_piece_from_bound_to_bound() {
     let pieces = pieces_of(&graph_of(x()), -1.0, 1.0);
     assert_eq!(pieces.len(), 1);
     let piece = &pieces[0];
-    assert_eq!(piece.len(), SAMPLES as usize + 1);
     assert_eq!(piece[0], DVec2::new(825.0, 675.0));
     assert_eq!(piece[piece.len() - 1], DVec2::new(1095.0, 405.0));
-    let step = piece[1].x - piece[0].x;
-    assert!((step - 270.0 / f64::from(SAMPLES)).abs() < 1e-9, "{step}");
+    for (p, q) in piece.iter().zip(&piece[1..]) {
+        assert!(q.x > p.x, "{p} then {q}");
+        assert!((q.x + q.y - 1500.0).abs() < 1e-9, "{q}");
+    }
 }
 
 #[test]
-fn undefined_samples_split_the_curve() {
-    let inverse = graph_of(binary(BinaryOp::Div, constant(1.0), x()));
-    let pieces = pieces_of(&inverse, -1.0, 1.0);
+fn asymptote_splits_the_curve_without_crossing_it() {
+    let inverse = graph_of(div(constant(1.0), x()));
+    for (from, to) in [(-1.0, 1.0), (-1.0, 1.1), (-2.0, 2.0)] {
+        let pieces = pieces_of(&inverse, from, to);
+        assert_eq!(pieces.len(), 2, "[{from}, {to}]");
+        assert!(pieces[0].iter().all(|p| p.x < 960.0), "[{from}, {to}]");
+        assert!(pieces[1].iter().all(|p| p.x > 960.0), "[{from}, {to}]");
+    }
+}
+
+#[test]
+fn tangent_is_cut_at_each_asymptote() {
+    let pieces = pieces_of(&graph_of(call(BuiltInFn::Tan, x())), -7.0, 7.0);
+    assert_eq!(pieces.len(), 5);
+    for k in -2..2 {
+        let asymptote = 960.0 + 135.0 * (f64::from(k) + 0.5) * std::f64::consts::PI;
+        assert!(!crosses(&pieces, asymptote), "{asymptote}");
+    }
+}
+
+#[test]
+fn curve_starts_at_the_edge_of_its_domain() {
+    let ln = pieces_of(&graph_of(call(BuiltInFn::Ln, x())), -1.0, 1.0);
+    assert_eq!(ln.len(), 1);
+    assert!(ln[0][0].x >= 960.0 && ln[0][0].x < 960.001, "{}", ln[0][0]);
+    let sqrt = pieces_of(&graph_of(call(BuiltInFn::Sqrt, x())), -1.0, 1.0);
+    assert_eq!(sqrt.len(), 1);
+    assert_near(sqrt[0][0], (960.0, 540.0));
+}
+
+#[test]
+fn semicircle_is_one_piece_closed_on_the_axis() {
+    let semicircle = graph_of(call(BuiltInFn::Sqrt, sub(constant(1.0), squared(x()))));
+    for (from, to) in [(-1.0, 1.0), (-1.3, 1.7), (-10.0, 10.0)] {
+        let pieces = pieces_of(&semicircle, from, to);
+        assert_eq!(pieces.len(), 1, "[{from}, {to}]");
+        let piece = &pieces[0];
+        assert_near(piece[0], (825.0, 540.0));
+        assert_near(piece[piece.len() - 1], (1095.0, 540.0));
+    }
+}
+
+#[test]
+fn hole_inside_a_grid_interval_is_found_and_closed() {
+    let outside = graph_of(call(BuiltInFn::Sqrt, sub(squared(x()), constant(0.0001))));
+    let pieces = pieces_of(&outside, -1.0, 1.0);
     assert_eq!(pieces.len(), 2);
-    assert!(pieces[0].iter().all(|p| p.x < 960.0));
-    assert!(pieces[1].iter().all(|p| p.x > 960.0));
-    let half = SAMPLES as usize / 2;
-    assert_eq!((pieces[0].len(), pieces[1].len()), (half, half));
+    assert_near(pieces[0][pieces[0].len() - 1], (958.65, 540.0));
+    assert_near(pieces[1][0], (961.35, 540.0));
+}
+
+fn worst_gap(construction: &Construction, from: f64, to: f64) -> f64 {
+    let pieces = pieces_of(construction, from, to);
+    let (camera, canvas) = (Camera::default(), Canvas::default());
+    let mut ctx = EvalContext::default();
+    let mut worst: f64 = 0.0;
+    let n = 20_000;
+    for i in 0..=n {
+        let t = from + (to - from) * f64::from(i) / f64::from(n);
+        let Some(p) =
+            sample_point(construction, &mut ctx, t).and_then(|p| camera.to_canvas(p, &canvas))
+        else {
+            continue;
+        };
+        if !(0.0..=1920.0).contains(&p.x) || !(0.0..=1080.0).contains(&p.y) {
+            continue;
+        }
+        let mut gap = f64::INFINITY;
+        for piece in &pieces {
+            if p.x < piece[0].x || p.x > piece[piece.len() - 1].x {
+                continue;
+            }
+            let j = piece
+                .partition_point(|q| q.x < p.x)
+                .clamp(1, piece.len() - 1);
+            for k in j.saturating_sub(2).max(1)..(j + 3).min(piece.len()) {
+                gap = gap.min(distance_to_segment(p, piece[k - 1], piece[k]));
+            }
+        }
+        worst = worst.max(gap);
+    }
+    worst
 }
 
 #[test]
-fn curve_starts_after_the_first_defined_sample() {
-    let ln = graph_of(builtin(BuiltInFn::Ln, vec![x()]));
-    let pieces = pieces_of(&ln, -1.0, 1.0);
+fn samples_follow_the_true_curve_within_a_pixel() {
+    let tau = std::f64::consts::TAU;
+    let sine = |a: f64, b: f64| {
+        graph_of(mul(
+            constant(a),
+            call(BuiltInFn::Sin, mul(constant(b), x())),
+        ))
+    };
+    let cases = [
+        ("x^2", graph_of(squared(x())), -2.0, 2.0),
+        ("exp", graph_of(call(BuiltInFn::Exp, x())), 0.0, 10.0),
+        ("S around an inflection", sine(3.0, 19.0), -7.0, 7.0),
+        (
+            "in phase with the midpoints",
+            sine(1.0, 16.0 * tau),
+            0.0,
+            8.0,
+        ),
+        ("in phase with a regular grid", sine(1.0, tau), 0.0, 256.0),
+    ];
+    for (name, construction, from, to) in cases {
+        let gap = worst_gap(&construction, from, to);
+        assert!(gap <= 1.0, "{name}: {gap} px");
+    }
+}
+
+fn assert_cut_without_risers(construction: &Construction, from: f64, to: f64, count: usize) {
+    let pieces = pieces_of(construction, from, to);
+    assert_eq!(pieces.len(), count, "[{from}, {to}]");
+    for piece in &pieces {
+        for (p, q) in piece.iter().zip(&piece[1..]) {
+            let riser = (q.y - p.y).abs() > 1.0 && (q.x - p.x).abs() < 0.1;
+            assert!(!riser, "{p} then {q}");
+        }
+    }
+}
+
+#[test]
+fn steps_are_cut_without_risers() {
+    assert_cut_without_risers(&graph_of(call(BuiltInFn::Floor, x())), -2.5, 2.5, 6);
+    assert_cut_without_risers(&graph_of(call(BuiltInFn::Sign, x())), -1.0, 1.0, 2);
+    let modulo = builtin(BuiltInFn::Mod, vec![x(), constant(1.0)]);
+    assert_cut_without_risers(&graph_of(modulo), -2.0, 2.0, 4);
+    let stairs = div(
+        call(BuiltInFn::Floor, mul(constant(10.0), x())),
+        constant(10.0),
+    );
+    assert_cut_without_risers(&graph_of(stairs), -1.0, 1.0, 20);
+}
+
+#[test]
+fn continuous_curves_are_never_cut() {
+    let t = || Expr::Variable("t".to_string());
+    let cusp = Construction::Curve {
+        variable: "t".to_string(),
+        position: Expr::Vector {
+            x: Box::new(squared(t())),
+            y: Box::new(mul(t(), squared(t()))),
+            z: Box::new(constant(0.0)),
+        },
+        from: constant(0.0),
+        to: constant(1.0),
+    };
+    let mut cases = vec![
+        ("sqrt", graph_of(call(BuiltInFn::Sqrt, x())), -1.0, 1.0),
+        ("asin", graph_of(call(BuiltInFn::Asin, x())), -2.0, 2.0),
+        ("acos", graph_of(call(BuiltInFn::Acos, x())), -2.0, 2.0),
+        ("cbrt", graph_of(call(BuiltInFn::Cbrt, x())), -1.0, 1.0),
+        (
+            "steep atan",
+            graph_of(call(BuiltInFn::Atan, mul(constant(1000.0), x()))),
+            -1.0,
+            1.0,
+        ),
+        ("cusp", cusp, -1.0, 1.0),
+    ];
+    for n in 2..=12 {
+        let root = binary(BinaryOp::Pow, x(), constant(1.0 / f64::from(n)));
+        cases.push(("root", graph_of(root), -1.0, 1.0));
+    }
+    for (name, construction, from, to) in cases {
+        assert_eq!(pieces_of(&construction, from, to).len(), 1, "{name}");
+    }
+}
+
+#[test]
+fn corner_finer_than_the_deepest_level_keeps_its_midpoint() {
+    let corner = DVec2::new(960.0 + 0.3 * 135.0, 540.0);
+    let v = graph_of(call(BuiltInFn::Abs, sub(x(), constant(0.3))));
+    let pieces = pieces_of(&v, -100.0, 100.0);
     assert_eq!(pieces.len(), 1);
-    assert!(pieces[0][0].x > 960.0);
+    let gap = pieces[0]
+        .windows(2)
+        .map(|s| distance_to_segment(corner, s[0], s[1]))
+        .fold(f64::INFINITY, f64::min);
+    assert!(gap < 0.1, "{gap} px");
+}
+
+#[test]
+fn narrow_bump_on_a_quarter_is_found() {
+    let (from, to) = (-7.0, 7.0);
+    let (a, b) = (grid_parameter(from, to, 20), grid_parameter(from, to, 21));
+    let width = (b - a) / 16.0;
+    for quarter in [1.0, 3.0] {
+        let top = a + (b - a) * quarter / 4.0;
+        let bump = graph_of(mul(
+            constant(5.0 / 135.0),
+            call(
+                BuiltInFn::Exp,
+                mul(
+                    constant(-1.0 / (width * width)),
+                    squared(sub(x(), constant(top))),
+                ),
+            ),
+        ));
+        let peak = DVec2::new(960.0 + 135.0 * top, 540.0 - 5.0);
+        let gap = pieces_of(&bump, from, to)
+            .iter()
+            .flat_map(|piece| piece.windows(2))
+            .map(|s| distance_to_segment(peak, s[0], s[1]))
+            .fold(f64::INFINITY, f64::min);
+        assert!(gap < 1.0, "quarter {quarter}: {gap} px");
+    }
+}
+
+#[test]
+fn corners_are_never_cut() {
+    let corner = |slope: f64, at: f64, shift: f64| {
+        graph_of(sub(
+            call(BuiltInFn::Abs, mul(constant(slope), sub(x(), constant(at)))),
+            constant(shift),
+        ))
+    };
+    for k in 0..40 {
+        let at = -0.5 + f64::from(k) * 0.0273;
+        assert_eq!(
+            pieces_of(&corner(5.0, at, 3.0), -50.0, 50.0).len(),
+            1,
+            "{at}"
+        );
+    }
+    assert_eq!(pieces_of(&corner(5.0, 0.3, 0.0), -100.0, 100.0).len(), 1);
+    let cusp = graph_of(call(
+        BuiltInFn::Sqrt,
+        call(BuiltInFn::Abs, sub(x(), constant(0.3))),
+    ));
+    assert_eq!(pieces_of(&cusp, -100.0, 100.0).len(), 1);
+}
+
+#[test]
+fn narrow_arches_between_undefined_samples_are_found() {
+    let arches = graph_of(call(
+        BuiltInFn::Sqrt,
+        call(BuiltInFn::Sin, mul(constant(50.0), x())),
+    ));
+    let pieces = pieces_of(&arches, -7.0, 7.0);
+    assert_eq!(pieces.len(), 112);
+    for piece in &pieces {
+        assert!(piece.iter().any(|p| p.y < 440.0), "{:?}", piece[0]);
+    }
+}
+
+#[test]
+fn off_screen_intervals_are_not_refined() {
+    let high_wave = graph_of(binary(
+        BinaryOp::Add,
+        constant(100.0),
+        call(BuiltInFn::Sin, mul(constant(50.0), x())),
+    ));
+    let pieces = pieces_of(&high_wave, -1.0, 1.0);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(pieces[0].len(), GRID as usize + 1);
 }
 
 #[test]
@@ -272,6 +780,7 @@ fn nothing_is_sampled_with_an_invalid_camera() {
         &broken,
         &Canvas::default(),
         &mut ctx,
+        2.0,
     );
     assert!(pieces.is_empty());
 }

@@ -7,8 +7,28 @@ use crate::{
 };
 
 const TOLERANCE: f64 = 0.1;
-const SAMPLES: u32 = 256;
 pub(crate) const LAYER_COUNT: u8 = 3;
+const GRID: u32 = 64;
+const OFFSET: f64 = 0.381966;
+const MAX_DEPTH: u32 = 10;
+const EDGE_DEPTH: u32 = 50;
+const JUMP_RATIO: f64 = 0.99;
+
+#[derive(Clone, Copy)]
+struct Sample {
+    t: f64,
+    point: Option<DVec2>,
+}
+
+struct Sampler<'a> {
+    construction: &'a Construction,
+    ctx: &'a mut EvalContext,
+    camera: &'a Camera,
+    canvas: &'a Canvas,
+    margin: f64,
+    pieces: Vec<Vec<DVec2>>,
+    current: Vec<DVec2>,
+}
 
 fn dash(line: LineStyle, width: f64) -> Option<Dash> {
     match line {
@@ -106,7 +126,15 @@ pub(crate) fn object_primitive(
 
         ObjectValue::Curve { from, to } => {
             let stroke = stroke(style, color)?;
-            let pieces = sample_pieces(&object.construction, *from, *to, camera, canvas, ctx);
+            let pieces = sample_pieces(
+                &object.construction,
+                *from,
+                *to,
+                camera,
+                canvas,
+                ctx,
+                stroke.width / 2.0,
+            );
             if pieces.is_empty() {
                 return None;
             }
@@ -125,6 +153,88 @@ pub(crate) fn object_primitive(
                 },
             })
         }
+    }
+}
+
+impl Sampler<'_> {
+    fn sample(&mut self, t: f64) -> Sample {
+        let point = sample_point(self.construction, self.ctx, t)
+            .and_then(|p| self.camera.to_canvas(p, self.canvas));
+        Sample { t, point }
+    }
+
+    fn emit(&mut self, point: Option<DVec2>) {
+        match point {
+            Some(p) => self.current.push(p),
+            None => {
+                let piece = std::mem::take(&mut self.current);
+                if piece.len() >= 2 {
+                    self.pieces.push(piece);
+                }
+            }
+        }
+    }
+
+    fn off_screen(&self, a: DVec2, m: DVec2, b: DVec2) -> bool {
+        let low = a.min(m).min(b);
+        let high = a.max(m).max(b);
+        let width = f64::from(self.canvas.format.width());
+        let height = f64::from(self.canvas.format.height());
+
+        high.x < -self.margin
+            || high.y < -self.margin
+            || low.x > width + self.margin
+            || low.y > height + self.margin
+    }
+
+    fn refine(&mut self, a: Sample, m: Sample, b: Sample, depth: u32) {
+        if depth >= EDGE_DEPTH || m.t == a.t || m.t == b.t {
+            self.emit(m.point);
+            self.emit(b.point);
+            return;
+        }
+        if let (Some(pa), Some(pm), Some(pb)) = (a.point, m.point, b.point)
+            && self.off_screen(pa, pm, pb)
+        {
+            self.emit(b.point);
+            return;
+        }
+        let q1 = self.sample((a.t + m.t) / 2.0);
+        let q3 = self.sample((m.t + b.t) / 2.0);
+
+        if a.point.is_none()
+            && b.point.is_none()
+            && m.point.is_none()
+            && q1.point.is_none()
+            && q3.point.is_none()
+        {
+            self.emit(None);
+            return;
+        }
+
+        if let (Some(pa), Some(pm), Some(pb), Some(pq1), Some(pq3)) =
+            (a.point, m.point, b.point, q1.point, q3.point)
+        {
+            if distance_to_segment(pq1, pa, pb) <= TOLERANCE
+                && distance_to_segment(pm, pa, pb) <= TOLERANCE
+                && distance_to_segment(pq3, pa, pb) <= TOLERANCE
+                && !is_jump(pa, pq1, pm, pq3, pb)
+            {
+                self.emit(b.point);
+                return;
+            } else if depth >= MAX_DEPTH {
+                if is_jump(pa, pq1, pm, pq3, pb) {
+                    self.emit(None);
+                } else {
+                    self.emit(m.point);
+                }
+                self.emit(b.point);
+                return;
+            }
+        }
+
+        self.refine(a, q1, m, depth + 1);
+        self.refine(m, q3, b, depth + 1);
     }
 }
 
@@ -162,29 +272,59 @@ fn sample_pieces(
     camera: &Camera,
     canvas: &Canvas,
     ctx: &mut EvalContext,
+    margin: f64,
 ) -> Vec<Vec<DVec2>> {
-    let mut pieces: Vec<Vec<DVec2>> = Vec::new();
-    let mut current: Vec<DVec2> = Vec::new();
+    let mut sampler = Sampler {
+        construction,
+        ctx,
+        camera,
+        canvas,
+        margin,
+        pieces: Vec::new(),
+        current: Vec::new(),
+    };
+    let mut a = sampler.sample(from);
+    sampler.emit(a.point);
 
-    for i in 0..=SAMPLES {
-        let t = from + (to - from) * i as f64 / SAMPLES as f64;
-        if let Some(p) = sample_point(construction, ctx, t)
-            && let Some(q) = camera.to_canvas(p, canvas)
-        {
-            current.push(q);
-        } else {
-            if current.len() >= 2 {
-                pieces.push(current);
-            }
-            current = Vec::new();
-        }
+    for i in 1..=GRID {
+        let b = sampler.sample(grid_parameter(from, to, i));
+        let m = sampler.sample((a.t + b.t) / 2.0);
+
+        sampler.refine(a, m, b, 0);
+        a = b;
     }
+    sampler.emit(None);
+    sampler.pieces
+}
 
-    if current.len() >= 2 {
-        pieces.push(current);
+fn grid_parameter(from: f64, to: f64, i: u32) -> f64 {
+    if i == 0 {
+        from
+    } else if i == GRID {
+        to
+    } else {
+        let shift = (f64::from(i) * OFFSET).fract() / 2.0;
+        from + (to - from) * (f64::from(i) - shift) / f64::from(GRID)
     }
+}
 
-    pieces
+fn distance_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+    let ab = b - a;
+    if ab.length_squared() == 0.0 {
+        return p.distance(a);
+    }
+    let k = ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0);
+    p.distance(a + ab * k)
+}
+
+fn is_jump(a: DVec2, q1: DVec2, m: DVec2, q3: DVec2, b: DVec2) -> bool {
+    let half = a.distance(m).max(m.distance(b));
+    let quarter = a
+        .distance(q1)
+        .max(q1.distance(m))
+        .max(m.distance(q3))
+        .max(q3.distance(b));
+    half > 2.0 * TOLERANCE && quarter >= JUMP_RATIO * half
 }
 
 #[cfg(test)]
