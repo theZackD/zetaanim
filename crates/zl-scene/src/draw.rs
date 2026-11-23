@@ -1,9 +1,13 @@
-use kurbo::{Circle, Line, Shape};
+use glam::{DVec2, DVec3};
+use kurbo::{BezPath, Circle, Line, Shape};
 use zl_primitives::{COORDINATE_LIMIT, Color, Dash, Primitive, Stroke, Style};
 
-use crate::{Camera, Canvas, LineStyle, ObjectStyle, ObjectValue};
+use crate::{
+    Camera, Canvas, Construction, EvalContext, LineStyle, Object, ObjectStyle, ObjectValue, Value,
+};
 
 const TOLERANCE: f64 = 0.1;
+const SAMPLES: u32 = 256;
 pub(crate) const LAYER_COUNT: u8 = 3;
 
 fn dash(line: LineStyle, width: f64) -> Option<Dash> {
@@ -42,11 +46,13 @@ pub(crate) fn draw_layer(value: &ObjectValue, style: &ObjectStyle) -> Option<u8>
 }
 
 pub(crate) fn object_primitive(
+    object: &Object,
     value: &ObjectValue,
-    style: &ObjectStyle,
     camera: &Camera,
     canvas: &Canvas,
+    ctx: &mut EvalContext,
 ) -> Option<Primitive> {
+    let style = &object.style;
     let scale = camera.scale()?;
     let color = style.color.unwrap_or(canvas.foreground);
     match value {
@@ -98,50 +104,88 @@ pub(crate) fn object_primitive(
             })
         }
 
-        ObjectValue::Curve { .. } => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use glam::DVec3;
-
-    #[test]
-    fn every_layer_is_below_the_layer_count() {
-        let plain = ObjectStyle::default();
-        let filled = ObjectStyle {
-            fill: Some(Color {
-                r: 255,
-                g: 0,
-                b: 0,
-                a: 255,
-            }),
-            ..ObjectStyle::default()
-        };
-        let circle = ObjectValue::Circle {
-            center: DVec3::ZERO,
-            radius: 1.0,
-        };
-        let cases = [
-            (ObjectValue::Number(crate::Value::Real(1.0)), plain, None),
-            (circle.clone(), filled, Some(0)),
-            (
-                ObjectValue::Segment {
-                    start: DVec3::ZERO,
-                    end: DVec3::X,
+        ObjectValue::Curve { from, to } => {
+            let stroke = stroke(style, color)?;
+            let pieces = sample_pieces(&object.construction, *from, *to, camera, canvas, ctx);
+            if pieces.is_empty() {
+                return None;
+            }
+            let mut path = BezPath::new();
+            for piece in &pieces {
+                path.move_to((piece[0].x, piece[0].y));
+                for p in &piece[1..] {
+                    path.line_to((p.x, p.y));
+                }
+            }
+            Some(Primitive::Path {
+                path,
+                style: Style {
+                    stroke: Some(stroke),
+                    fill: None,
                 },
-                plain,
-                Some(1),
-            ),
-            (circle, plain, Some(1)),
-            (ObjectValue::Point(DVec3::ZERO), plain, Some(2)),
-            (ObjectValue::Curve { from: 0.0, to: 1.0 }, plain, Some(1)),
-        ];
-        for (value, style, expected) in cases {
-            let layer = draw_layer(&value, &style);
-            assert_eq!(layer, expected, "{value:?}");
-            assert!(layer.is_none_or(|layer| layer < LAYER_COUNT), "{value:?}");
+            })
         }
     }
 }
+
+fn sample_point(construction: &Construction, ctx: &mut EvalContext, t: f64) -> Option<DVec3> {
+    match construction {
+        Construction::Graph {
+            variable,
+            expression,
+            ..
+        } => {
+            ctx.variables.push((variable.clone(), Value::Real(t)));
+            let y = expression.evaluate(ctx);
+            ctx.variables.pop();
+            Some(DVec3::new(t, y?.as_real()?, 0.0))
+        }
+        Construction::Curve {
+            variable, position, ..
+        } => {
+            ctx.variables.push((variable.clone(), Value::Real(t)));
+            let p = position.evaluate(ctx);
+            ctx.variables.pop();
+            p?.as_vector()
+        }
+        Construction::Circle { .. }
+        | Construction::Number { .. }
+        | Construction::Point { .. }
+        | Construction::Segment { .. } => None,
+    }
+}
+
+fn sample_pieces(
+    construction: &Construction,
+    from: f64,
+    to: f64,
+    camera: &Camera,
+    canvas: &Canvas,
+    ctx: &mut EvalContext,
+) -> Vec<Vec<DVec2>> {
+    let mut pieces: Vec<Vec<DVec2>> = Vec::new();
+    let mut current: Vec<DVec2> = Vec::new();
+
+    for i in 0..=SAMPLES {
+        let t = from + (to - from) * i as f64 / SAMPLES as f64;
+        if let Some(p) = sample_point(construction, ctx, t)
+            && let Some(q) = camera.to_canvas(p, canvas)
+        {
+            current.push(q);
+        } else {
+            if current.len() >= 2 {
+                pieces.push(current);
+            }
+            current = Vec::new();
+        }
+    }
+
+    if current.len() >= 2 {
+        pieces.push(current);
+    }
+
+    pieces
+}
+
+#[cfg(test)]
+mod tests;
