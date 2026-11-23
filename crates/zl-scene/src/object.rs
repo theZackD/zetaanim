@@ -12,10 +12,32 @@ pub enum Origin {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Construction {
-    Point { position: Expr },
-    Number { value: Expr },
-    Segment { start: Expr, end: Expr },
-    Circle { center: Expr, radius: Expr },
+    Point {
+        position: Expr,
+    },
+    Number {
+        value: Expr,
+    },
+    Segment {
+        start: Expr,
+        end: Expr,
+    },
+    Circle {
+        center: Expr,
+        radius: Expr,
+    },
+    Graph {
+        variable: String,
+        expression: Expr,
+        from: Expr,
+        to: Expr,
+    },
+    Curve {
+        variable: String,
+        position: Expr,
+        from: Expr,
+        to: Expr,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +46,7 @@ pub enum ObjectValue {
     Point(DVec3),
     Segment { start: DVec3, end: DVec3 },
     Circle { center: DVec3, radius: f64 },
+    Curve { from: f64, to: f64 },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +91,42 @@ impl Construction {
                     None
                 }
             }
+
+            Construction::Graph {
+                expression,
+                from,
+                to,
+                ..
+            } => {
+                for dep in expression.dependencies() {
+                    if !(ctx.objects.contains_key(&dep)) {
+                        return None;
+                    }
+                }
+                let from = from.evaluate(ctx)?.as_real()?;
+                let to = to.evaluate(ctx)?.as_real()?;
+                if from < to {
+                    Some(ObjectValue::Curve { from, to })
+                } else {
+                    None
+                }
+            }
+            Construction::Curve {
+                position, from, to, ..
+            } => {
+                for dep in position.dependencies() {
+                    if !(ctx.objects.contains_key(&dep)) {
+                        return None;
+                    }
+                }
+                let from = from.evaluate(ctx)?.as_real()?;
+                let to = to.evaluate(ctx)?.as_real()?;
+                if from < to {
+                    Some(ObjectValue::Curve { from, to })
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -84,6 +143,25 @@ impl Construction {
                 let mut s = start.dependencies();
                 s.extend(end.dependencies());
                 s
+            }
+            Construction::Graph {
+                expression,
+                from,
+                to,
+                ..
+            } => {
+                let mut g = expression.dependencies();
+                g.extend(from.dependencies());
+                g.extend(to.dependencies());
+                g
+            }
+            Construction::Curve {
+                position, from, to, ..
+            } => {
+                let mut c = position.dependencies();
+                c.extend(from.dependencies());
+                c.extend(to.dependencies());
+                c
             }
         }
     }
@@ -110,6 +188,7 @@ impl ObjectValue {
                 Property::End => Some(Value::Vector(*end)),
                 _ => None,
             },
+            ObjectValue::Curve { .. } => None,
         }
     }
 }
@@ -283,6 +362,7 @@ mod tests {
                     (Property::Radius, real(2.5)),
                 ],
             ),
+            (ObjectValue::Curve { from: 0.0, to: 1.0 }, vec![]),
         ];
         for (object, answers) in &cases {
             for property in all_properties() {
@@ -896,5 +976,193 @@ mod tests {
             constant(vector(0.1, 0.0, 0.0)),
         ));
         assert_eq!(a_moved_by_itself.dependencies(), ids(&[0]));
+    }
+
+    fn variable(name: &str) -> Expr {
+        Expr::Variable(name.to_string())
+    }
+
+    fn graph(expression: Expr, from: Expr, to: Expr) -> Construction {
+        Construction::Graph {
+            variable: "x".to_string(),
+            expression,
+            from,
+            to,
+        }
+    }
+
+    fn curve(position: Expr, from: Expr, to: Expr) -> Construction {
+        Construction::Curve {
+            variable: "t".to_string(),
+            position,
+            from,
+            to,
+        }
+    }
+
+    fn unit_circle() -> Expr {
+        vector_expr(
+            call(BuiltInFn::Cos, vec![variable("t")]),
+            call(BuiltInFn::Sin, vec![variable("t")]),
+            constant(real(0.0)),
+        )
+    }
+
+    #[test]
+    fn graph_and_curve_evaluate_to_their_bounds() {
+        let ctx = EvalContext::default();
+        let exp = call(BuiltInFn::Exp, vec![variable("x")]);
+        assert_eq!(
+            graph(exp, constant(real(0.0)), constant(real(10.0))).evaluate(&ctx),
+            Some(ObjectValue::Curve {
+                from: 0.0,
+                to: 10.0
+            })
+        );
+        assert_eq!(
+            curve(unit_circle(), constant(real(-1.0)), constant(real(6.5))).evaluate(&ctx),
+            Some(ObjectValue::Curve {
+                from: -1.0,
+                to: 6.5
+            })
+        );
+    }
+
+    #[test]
+    fn bounds_can_come_from_other_objects() {
+        let ctx = ctx_with(&[
+            (0, ObjectValue::Number(real(-2.0))),
+            (1, ObjectValue::Number(complex(3.0, 1e-12))),
+        ]);
+        assert_eq!(
+            graph(
+                variable("x"),
+                reference(0, Property::Value),
+                reference(1, Property::Value)
+            )
+            .evaluate(&ctx),
+            Some(ObjectValue::Curve {
+                from: -2.0,
+                to: 3.0
+            })
+        );
+    }
+
+    #[test]
+    fn bounds_must_be_increasing() {
+        let ctx = EvalContext::default();
+        for (from, to) in [(1.0, 1.0), (2.0, 1.0)] {
+            assert_eq!(
+                graph(variable("x"), constant(real(from)), constant(real(to))).evaluate(&ctx),
+                None,
+                "[{from}, {to}]"
+            );
+            assert_eq!(
+                curve(unit_circle(), constant(real(from)), constant(real(to))).evaluate(&ctx),
+                None,
+                "[{from}, {to}]"
+            );
+        }
+    }
+
+    #[test]
+    fn bounds_must_be_real_and_defined() {
+        let ctx = EvalContext::default();
+        let one = || constant(real(1.0));
+        let invalid = [
+            constant(vector(1.0, 0.0, 0.0)),
+            constant(complex(0.0, 1.0)),
+            constant(real(f64::NAN)),
+            constant(real(f64::INFINITY)),
+            reference(7, Property::Value),
+            call(BuiltInFn::Sqrt, vec![constant(real(-1.0))]),
+        ];
+        for bound in invalid {
+            assert_eq!(
+                graph(variable("x"), bound.clone(), one()).evaluate(&ctx),
+                None,
+                "from = {bound:?}"
+            );
+            assert_eq!(
+                curve(unit_circle(), constant(real(0.0)), bound.clone()).evaluate(&ctx),
+                None,
+                "to = {bound:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn graph_using_a_missing_object_is_undefined_not_empty() {
+        let scaled = binary(BinaryOp::Mul, reference(5, Property::Value), variable("x"));
+        let empty = EvalContext::default();
+        assert_eq!(
+            graph(scaled.clone(), constant(real(0.0)), constant(real(1.0))).evaluate(&empty),
+            None
+        );
+        let with_a = ctx_with(&[(5, ObjectValue::Number(real(2.0)))]);
+        assert_eq!(
+            graph(scaled, constant(real(0.0)), constant(real(1.0))).evaluate(&with_a),
+            Some(ObjectValue::Curve { from: 0.0, to: 1.0 })
+        );
+        let moving = vector_expr(
+            reference(5, Property::Value),
+            variable("t"),
+            constant(real(0.0)),
+        );
+        assert_eq!(
+            curve(moving, constant(real(0.0)), constant(real(1.0))).evaluate(&empty),
+            None
+        );
+    }
+
+    #[test]
+    fn expression_is_not_evaluated_with_the_bounds() {
+        let ctx = EvalContext::default();
+        let never_defined = call(BuiltInFn::Sqrt, vec![constant(real(-1.0))]);
+        assert_eq!(
+            graph(never_defined, constant(real(0.0)), constant(real(1.0))).evaluate(&ctx),
+            Some(ObjectValue::Curve { from: 0.0, to: 1.0 })
+        );
+        assert_eq!(
+            curve(
+                constant(real(3.0)),
+                constant(real(0.0)),
+                constant(real(1.0))
+            )
+            .evaluate(&ctx),
+            Some(ObjectValue::Curve { from: 0.0, to: 1.0 })
+        );
+    }
+
+    #[test]
+    fn graph_and_curve_depend_on_their_expression_and_bounds_but_not_their_variable() {
+        let a_times_x = binary(BinaryOp::Mul, reference(9, Property::Value), variable("x"));
+        assert_eq!(
+            graph(
+                a_times_x,
+                reference(3, Property::Value),
+                reference(4, Property::Value)
+            )
+            .dependencies(),
+            ids(&[3, 4, 9])
+        );
+        assert_eq!(
+            graph(variable("x"), constant(real(0.0)), constant(real(1.0))).dependencies(),
+            ids(&[])
+        );
+        let moving = vector_expr(
+            reference(9, Property::Value),
+            variable("t"),
+            constant(real(0.0)),
+        );
+        assert_eq!(
+            curve(
+                moving,
+                reference(3, Property::Value),
+                reference(4, Property::Value)
+            )
+            .dependencies(),
+            ids(&[3, 4, 9])
+        );
     }
 }

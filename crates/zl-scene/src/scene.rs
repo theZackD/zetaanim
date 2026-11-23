@@ -19,6 +19,7 @@ pub struct Scene {
 pub struct EvaluatedScene {
     pub values: BTreeMap<ObjectId, ObjectValue>,
     pub blocked: BTreeSet<ObjectId>,
+    pub time: f64,
 }
 
 impl Scene {
@@ -108,6 +109,7 @@ impl Scene {
         EvaluatedScene {
             values: ctx.objects,
             blocked,
+            time,
         }
     }
 
@@ -743,6 +745,48 @@ mod tests {
         let evaluated = scene.evaluate(0.0);
         assert!(evaluated.values.is_empty());
         assert!(evaluated.blocked.is_empty());
+    }
+
+    #[test]
+    fn evaluation_remembers_its_time() {
+        let mut scene = Scene::new();
+        scene.add(point("A", 0.0, 0.0));
+        assert_eq!(scene.evaluate(2.5).time, 2.5);
+        assert_eq!(scene.evaluate(0.0).time, 0.0);
+    }
+
+    #[test]
+    fn graph_waits_for_the_objects_it_uses() {
+        let x = || Expr::Variable("x".to_string());
+        let mut scene = Scene::new();
+        scene.add(object(
+            "f",
+            Construction::Graph {
+                variable: "x".to_string(),
+                expression: binary(BinaryOp::Mul, value(1), x()),
+                from: real(0.0),
+                to: value(2),
+            },
+        ));
+        scene.add(number_of("a", real(3.0)));
+        scene.add(number_of("b", real(5.0)));
+        scene.add(object(
+            "g",
+            Construction::Graph {
+                variable: "x".to_string(),
+                expression: binary(BinaryOp::Mul, value(4), x()),
+                from: real(0.0),
+                to: real(1.0),
+            },
+        ));
+        scene.add(number_of("undefined", vector(1.0, 0.0, 0.0)));
+        let evaluated = scene.evaluate(0.0);
+        assert!(evaluated.blocked.is_empty());
+        assert_eq!(defined(&evaluated), ids(&[0, 1, 2]));
+        assert_eq!(
+            evaluated.values[&ObjectId(0)],
+            ObjectValue::Curve { from: 0.0, to: 5.0 }
+        );
     }
 
     #[test]

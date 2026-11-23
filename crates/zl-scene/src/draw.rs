@@ -37,6 +37,7 @@ pub(crate) fn draw_layer(value: &ObjectValue, style: &ObjectStyle) -> Option<u8>
         ObjectValue::Circle { .. } if style.fill.is_some() => Some(0),
         ObjectValue::Segment { .. } | ObjectValue::Circle { .. } => Some(1),
         ObjectValue::Point(_) => Some(2),
+        ObjectValue::Curve { .. } => Some(1),
     }
 }
 
@@ -96,6 +97,8 @@ pub(crate) fn object_primitive(
                 },
             })
         }
+
+        ObjectValue::Curve { .. } => None,
     }
 }
 
@@ -133,6 +136,7 @@ mod tests {
             ),
             (circle, plain, Some(1)),
             (ObjectValue::Point(DVec3::ZERO), plain, Some(2)),
+            (ObjectValue::Curve { from: 0.0, to: 1.0 }, plain, Some(1)),
         ];
         for (value, style, expected) in cases {
             let layer = draw_layer(&value, &style);
