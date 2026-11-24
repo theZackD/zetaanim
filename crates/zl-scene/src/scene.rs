@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use zl_primitives::Primitive;
 
 use crate::{
-    Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue,
+    Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue, Step, Timeline,
     draw::{LAYER_COUNT, draw_layer, object_primitive},
 };
 
@@ -13,6 +13,7 @@ pub struct Scene {
     objects: BTreeMap<ObjectId, Object>,
     canvas: Canvas,
     camera: Camera,
+    timeline: Timeline,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,6 +138,10 @@ impl Scene {
 
     pub fn canvas(&self) -> Canvas {
         self.canvas
+    }
+
+    pub fn add_step(&mut self, step: Step) {
+        self.timeline.steps.push(step);
     }
 }
 

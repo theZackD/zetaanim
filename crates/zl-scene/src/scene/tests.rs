@@ -1259,3 +1259,20 @@ fn graph_is_not_drawn_with_an_invalid_camera() {
     assert_eq!(defined(&evaluated), ids(&[0]));
     assert!(scene.primitives(&evaluated).is_empty());
 }
+
+#[test]
+fn add_step_appends_to_the_timeline() {
+    let mut scene = Scene::new();
+    assert!(scene.timeline.steps.is_empty());
+    let wait = Step {
+        animations: Vec::new(),
+        pause: 1.0,
+    };
+    let longer_wait = Step {
+        animations: Vec::new(),
+        pause: 2.0,
+    };
+    scene.add_step(wait.clone());
+    scene.add_step(longer_wait.clone());
+    assert_eq!(scene.timeline.steps, vec![wait, longer_wait]);
+}

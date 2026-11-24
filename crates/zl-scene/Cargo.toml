@@ -9,3 +9,4 @@ glam = { workspace = true }
 num-complex = { workspace = true }
 kurbo = { workspace = true }
 zl-primitives = { path = "../zl-primitives" }
+zl-math = { path = "../zl-math" }

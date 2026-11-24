@@ -8,6 +8,7 @@ mod id;
 mod object;
 mod scene;
 mod style;
+mod timeline;
 mod value;
 
 pub use camera::*;
@@ -18,4 +19,5 @@ pub use id::*;
 pub use object::*;
 pub use scene::*;
 pub use style::*;
+pub use timeline::*;
 pub use value::*;

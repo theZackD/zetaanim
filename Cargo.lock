@@ -247,6 +247,7 @@ dependencies = [
  "glam",
  "kurbo",
  "num-complex",
+ "zl-math",
  "zl-primitives",
 ]
 
