@@ -1,6 +1,7 @@
+use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
-use std::path::Path;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::thread::{self, JoinHandle};
 
 const FRAME_TOLERANCE: f64 = 1e-6;
@@ -12,6 +13,8 @@ pub struct Video {
     stdin: Option<ChildStdin>,
     frame_size: usize,
     errors: Option<JoinHandle<String>>,
+    path: PathBuf,
+    part: PathBuf,
 }
 
 impl Video {
@@ -40,6 +43,9 @@ impl Video {
                 "frame rate must be positive",
             ));
         }
+        let mut part = path.as_os_str().to_owned();
+        part.push(".part");
+        let part = PathBuf::from(part);
         let size = format!("{width}x{height}");
         let rate = fps.to_string();
         let mut child = Command::new(ffmpeg)
@@ -65,9 +71,11 @@ impl Video {
                 "18",
                 "-movflags",
                 "+faststart",
+                "-f",
+                "mp4",
                 "-y",
             ])
-            .arg(path)
+            .arg(&part)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -99,6 +107,8 @@ impl Video {
             stdin,
             errors: Some(errors),
             frame_size: width as usize * height as usize * 4,
+            path: path.to_path_buf(),
+            part,
         })
     }
 
@@ -119,28 +129,41 @@ impl Video {
                 "ffmpeg input is closed",
             ));
         };
-        stdin.write_all(rgba)
+        if let Err(error) = stdin.write_all(rgba) {
+            let (_, message) = self.close();
+            if message.is_empty() {
+                return Err(error);
+            }
+            return Err(io::Error::new(
+                error.kind(),
+                format!("{error}; ffmpeg: {message}"),
+            ));
+        }
+        Ok(())
     }
 
     pub fn finish(mut self) -> io::Result<()> {
+        let (status, message) = self.close();
+        match status {
+            Some(status) if status.success() => fs::rename(&self.part, &self.path),
+            Some(status) => Err(io::Error::other(format!(
+                "ffmpeg failed ({status}): {message}"
+            ))),
+            None => Err(io::Error::other(format!(
+                "ffmpeg had already stopped: {message}"
+            ))),
+        }
+    }
+
+    fn close(&mut self) -> (Option<ExitStatus>, String) {
         drop(self.stdin.take());
-        let Some(mut child) = self.child.take() else {
-            return Err(io::Error::other("ffmpeg is not running"));
-        };
-        let status = child.wait()?;
-        let errors = self
+        let status = self.child.take().and_then(|mut child| child.wait().ok());
+        let message = self
             .errors
             .take()
             .and_then(|handle| handle.join().ok())
             .unwrap_or_default();
-        if status.success() {
-            Ok(())
-        } else {
-            Err(io::Error::other(format!(
-                "ffmpeg failed ({status}): {}",
-                errors.trim()
-            )))
-        }
+        (status, message.trim().to_string())
     }
 }
 
@@ -154,6 +177,7 @@ impl Drop for Video {
         if let Some(handle) = self.errors.take() {
             let _ = handle.join();
         }
+        let _ = fs::remove_file(&self.part);
     }
 }
 
@@ -166,7 +190,13 @@ pub fn frame_count(duration: f64, fps: u32) -> u64 {
 }
 
 pub fn frame_time(index: u64, fps: u32, duration: f64) -> f64 {
-    (index as f64 / f64::from(fps)).min(duration)
+    if !(duration.is_finite() && duration > 0.0) {
+        return 0.0;
+    }
+    if index.saturating_add(1) >= frame_count(duration, fps) {
+        return duration;
+    }
+    index as f64 / f64::from(fps)
 }
 
 #[cfg(test)]
