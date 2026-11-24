@@ -191,12 +191,11 @@ pub fn there_and_back(t: f64) -> f64 {
 }
 
 pub fn there_and_back_with_pause(t: f64, pause_ratio: f64) -> f64 {
-    let pause_ratio = if !(pause_ratio >= 0.0 && pause_ratio < 1.0) {
-        0.0
-    } else {
+    let pause_ratio = if (0.0..1.0).contains(&pause_ratio) {
         pause_ratio
+    } else {
+        0.0
     };
-
     let a = 2.0 / (1.0 - pause_ratio);
     if t < 0.5 - pause_ratio / 2.0 {
         smooth(a * t)
@@ -224,7 +223,7 @@ pub fn double_smooth(t: f64) -> f64 {
 }
 
 pub fn wiggle(t: f64, wiggles: f64) -> f64 {
-    if !wiggles.is_finite() {
+    if !(wiggles * PI).is_finite() {
         return 0.0;
     }
     there_and_back(t) * (wiggles * PI * t).sin()

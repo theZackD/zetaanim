@@ -232,3 +232,116 @@ fn pow_with_vector_is_undefined() {
     assert_eq!(v.pow(&real(2.0)), None);
     assert_eq!(real(2.0).pow(&v), None);
 }
+
+#[test]
+fn interpolation_is_exact_at_both_ends() {
+    let pairs = [
+        (real(-3.7), real(0.3)),
+        (complex(-3.7, -2.0), complex(0.3, -0.9)),
+        (vector(-3.7, -2.0, 0.0), vector(0.3, -0.9, -1.0)),
+    ];
+    for (from, to) in pairs {
+        let start = from.interpolate(&to, 0.0).unwrap();
+        let end = from.interpolate(&to, 1.0).unwrap();
+        assert_eq!(start, from, "from {from:?} to {to:?}");
+        assert_eq!(end, to, "from {from:?} to {to:?}");
+        assert!(!has_negative_zero(&start) && !has_negative_zero(&end));
+    }
+}
+
+#[test]
+fn interpolation_midpoints_of_each_kind() {
+    let pi = std::f64::consts::PI;
+    assert_eq!(real(0.0).interpolate(&real(2.0 * pi), 0.5), Some(real(pi)));
+    assert_eq!(
+        complex(1.0, 2.0).interpolate(&complex(3.0, -2.0), 0.25),
+        Some(complex(1.5, 1.0))
+    );
+    assert_eq!(
+        vector(0.0, 0.0, 0.0).interpolate(&vector(4.0, -8.0, 2.0), 0.25),
+        Some(vector(1.0, -2.0, 0.5))
+    );
+}
+
+#[test]
+fn unchanged_components_stay_exact() {
+    for a in [0.7, 3.0, 0.1] {
+        for k in -200..=1200 {
+            let weight = f64::from(k) / 1000.0;
+            let moving = vector(0.0, a, -a).interpolate(&vector(5.0, a, -a), weight);
+            let Some(Value::Vector(v)) = moving else {
+                panic!("{a} at weight {weight}: {moving:?}");
+            };
+            assert_eq!((v.y, v.z), (a, -a), "{a} at weight {weight}");
+            assert_eq!(
+                real(a).interpolate(&real(a), weight),
+                Some(real(a)),
+                "{a} at weight {weight}"
+            );
+        }
+    }
+}
+
+#[test]
+fn mixed_numbers_move_as_complex_and_end_on_the_target() {
+    assert_eq!(
+        real(-3.7).interpolate(&complex(0.3, -0.9), 0.0),
+        Some(complex(-3.7, 0.0))
+    );
+    assert_eq!(
+        real(1.0).interpolate(&complex(3.0, 4.0), 0.5),
+        Some(complex(2.0, 2.0))
+    );
+    assert_eq!(
+        complex(1.0, 4.0).interpolate(&real(3.0), 0.5),
+        Some(complex(2.0, 2.0))
+    );
+    assert_eq!(
+        complex(1.0, 4.0).interpolate(&real(3.0), 1.0),
+        Some(real(3.0))
+    );
+}
+
+#[test]
+fn interpolating_numbers_and_vectors_is_undefined() {
+    for weight in [0.0, 0.5, 1.0] {
+        assert_eq!(real(2.0).interpolate(&vector(1.0, 0.0, 0.0), weight), None);
+        assert_eq!(
+            vector(1.0, 0.0, 0.0).interpolate(&complex(0.0, 1.0), weight),
+            None
+        );
+    }
+}
+
+#[test]
+fn interpolation_overshoots_past_both_ends() {
+    assert_eq!(real(2.0).interpolate(&real(6.0), 1.25), Some(real(7.0)));
+    assert_eq!(real(2.0).interpolate(&real(6.0), -0.25), Some(real(1.0)));
+    assert_eq!(
+        vector(0.0, 4.0, 0.0).interpolate(&vector(4.0, 0.0, 0.0), 1.25),
+        Some(vector(5.0, -1.0, 0.0))
+    );
+}
+
+#[test]
+fn interpolation_with_a_non_finite_weight_target_or_difference_is_undefined() {
+    for weight in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            real(1.0).interpolate(&real(2.0), weight),
+            None,
+            "weight {weight}"
+        );
+    }
+    for weight in [0.0, 0.5, 1.0, 2.0] {
+        assert_eq!(
+            real(1.0).interpolate(&real(f64::NAN), weight),
+            None,
+            "weight {weight}"
+        );
+        assert_eq!(
+            real(1e308).interpolate(&real(-1e308), weight),
+            None,
+            "weight {weight}"
+        );
+    }
+}

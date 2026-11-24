@@ -58,7 +58,7 @@ const INVALID_PAUSE_RATIOS: [f64; 6] = [1.0, 2.0, -1.0, f64::NAN, f64::INFINITY,
 
 const WIGGLES: [f64; 5] = [0.0, 2.0, 2.5, -3.6, 1e6];
 
-const INVALID_WIGGLES: [f64; 3] = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+const INVALID_WIGGLES: [f64; 5] = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e308, -1e308];
 
 fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < EPS

@@ -87,6 +87,14 @@ impl Value {
         res?.finite()
     }
 
+    pub fn interpolate(&self, to: &Value, weight: f64) -> Option<Value> {
+        let difference = to.sub(self)?;
+        if weight == 1.0 {
+            return Some(to.clone());
+        }
+        self.add(&difference.mul(&Value::Real(weight))?)
+    }
+
     pub(crate) fn finite(self) -> Option<Value> {
         match self {
             Value::Real(r) if r.is_finite() => Some(Value::Real(without_negative_zero(r))),
