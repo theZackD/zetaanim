@@ -784,3 +784,73 @@ fn nothing_is_sampled_with_an_invalid_camera() {
     );
     assert!(pieces.is_empty());
 }
+
+fn square() -> Rect {
+    Rect::new(0.0, 0.0, 100.0, 100.0)
+}
+
+#[test]
+fn clip_segment_keeps_the_part_inside_the_area() {
+    let p = DVec2::new;
+    let cases = [
+        ("across", p(-50.0, 50.0), p(150.0, 50.0), Some((0.25, 0.75))),
+        ("entering", p(-50.0, 50.0), p(50.0, 50.0), Some((0.5, 1.0))),
+        ("inside", p(10.0, 10.0), p(20.0, 30.0), Some((0.0, 1.0))),
+        (
+            "vertical inside",
+            p(50.0, 10.0),
+            p(50.0, 90.0),
+            Some((0.0, 1.0)),
+        ),
+        (
+            "horizontal inside",
+            p(10.0, 50.0),
+            p(90.0, 50.0),
+            Some((0.0, 1.0)),
+        ),
+        (
+            "single point inside",
+            p(50.0, 50.0),
+            p(50.0, 50.0),
+            Some((0.0, 1.0)),
+        ),
+        ("parallel below", p(-50.0, 150.0), p(150.0, 150.0), None),
+        ("single point outside", p(150.0, 50.0), p(150.0, 50.0), None),
+        ("past a corner", p(-10.0, 5.0), p(5.0, -10.0), None),
+        ("touching a corner", p(-10.0, 10.0), p(10.0, -10.0), None),
+    ];
+    for (name, a, b, expected) in cases {
+        assert_eq!(clip_segment(a, b, square()), expected, "{name}");
+    }
+}
+
+#[test]
+fn clip_pieces_lifts_the_pen_where_the_curve_leaves_the_area() {
+    let p = DVec2::new;
+    let out_and_back = vec![
+        p(50.0, 50.0),
+        p(150.0, 50.0),
+        p(150.0, 70.0),
+        p(50.0, 70.0),
+        p(40.0, 70.0),
+    ];
+    assert_eq!(
+        clip_pieces(&[out_and_back], square()),
+        vec![
+            vec![p(50.0, 50.0), p(100.0, 50.0)],
+            vec![p(100.0, 70.0), p(50.0, 70.0), p(40.0, 70.0)],
+        ]
+    );
+}
+
+#[test]
+fn clip_pieces_keeps_inside_pieces_whole_and_apart() {
+    let p = DVec2::new;
+    let first = vec![p(10.0, 10.0), p(20.0, 20.0), p(30.0, 10.0)];
+    let second = vec![p(30.0, 10.0), p(40.0, 40.0)];
+    let outside = vec![p(150.0, 10.0), p(170.0, 90.0)];
+    assert_eq!(
+        clip_pieces(&[first.clone(), outside, second.clone()], square()),
+        vec![first, second]
+    );
+}

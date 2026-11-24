@@ -2,7 +2,8 @@ use glam::DVec3;
 use zl_primitives::Color;
 use zl_render::{Image, render};
 use zl_scene::{
-    Construction, Expr, LineStyle, Object, ObjectId, ObjectStyle, Origin, Property, Scene, Value,
+    BinaryOp, BuiltInFn, Callee, Construction, Expr, LineStyle, Object, ObjectId, ObjectStyle,
+    Origin, Property, Scene, Value,
 };
 
 const FOREGROUND: Color = Color {
@@ -110,5 +111,53 @@ fn dashed_segment_alternates_dashes_and_gaps() {
             "second dash, row {y}"
         );
         assert_eq!(image.pixel(740, y), Some(WHITE), "second gap, row {y}");
+    }
+}
+
+fn graph(expression: Expr, from: f64, to: f64) -> Object {
+    object(
+        "graph",
+        Construction::Graph {
+            variable: "x".to_string(),
+            expression,
+            from: Expr::Constant(Value::Real(from)),
+            to: Expr::Constant(Value::Real(to)),
+        },
+        ObjectStyle::default(),
+    )
+}
+
+#[test]
+fn curves_and_segments_reaching_far_off_the_canvas_are_drawn() {
+    let x = || Expr::Variable("x".to_string());
+    let mut scene = Scene::new();
+    scene.add(graph(
+        Expr::Binary {
+            op: BinaryOp::Div,
+            left: Box::new(Expr::Constant(Value::Real(1.0))),
+            right: Box::new(x()),
+        },
+        -7.0,
+        7.0,
+    ));
+    scene.add(graph(
+        Expr::Call {
+            callee: Callee::BuiltIn(BuiltInFn::Exp),
+            args: vec![x()],
+        },
+        0.0,
+        1000.0,
+    ));
+    scene.add(object(
+        "far",
+        Construction::Segment {
+            start: Expr::Constant(Value::Vector(DVec3::new(-1e6, -2e6, 0.0))),
+            end: Expr::Constant(Value::Vector(DVec3::new(1e6, 2e6, 0.0))),
+        },
+        ObjectStyle::default(),
+    ));
+    let image = draw(&scene);
+    for (x, y) in [(1095, 405), (1027, 317), (960, 540)] {
+        assert_eq!(image.pixel(x, y), Some(FOREGROUND), "pixel ({x}, {y})");
     }
 }

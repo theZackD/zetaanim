@@ -1142,7 +1142,7 @@ fn parametric_circle_follows_the_camera_scale() {
 }
 
 #[test]
-fn graph_just_outside_the_canvas_is_refined_under_a_thick_stroke() {
+fn graph_just_outside_the_canvas_is_kept_within_the_reach_of_miter_joins() {
     let ripple = binary(
         BinaryOp::Mul,
         real(0.003),
@@ -1151,8 +1151,8 @@ fn graph_just_outside_the_canvas_is_refined_under_a_thick_stroke() {
             vec![binary(BinaryOp::Mul, real(200.0), variable_x())],
         ),
     );
-    let wave = binary(BinaryOp::Add, real(4.0 + 1.0 / 135.0), ripple);
-    let element_count = |width: f64| {
+    let wave = binary(BinaryOp::Add, real(4.0 + 5.0 / 135.0), ripple);
+    let drawn_with = |width: f64| {
         let mut scene = Scene::new();
         scene.add(styled(
             graph_object("wave", wave.clone(), -1.0, 1.0),
@@ -1161,12 +1161,67 @@ fn graph_just_outside_the_canvas_is_refined_under_a_thick_stroke() {
                 ..ObjectStyle::default()
             },
         ));
-        let primitives = drawn(&scene);
-        let Primitive::Path { path, .. } = &primitives[0];
-        path.elements().len()
+        drawn(&scene)
     };
-    let (thin, thick) = (element_count(1.0), element_count(4.0));
-    assert!(thick > 2 * thin, "{thin} then {thick}");
+    assert!(drawn_with(1.0).is_empty());
+    let kept = drawn_with(4.0);
+    assert_eq!(kept.len(), 1);
+    let Primitive::Path { path, .. } = &kept[0];
+    assert!(path.elements().len() > 130, "{}", path.elements().len());
+    let (bounds, _) = bounds_and_style(&kept[0]);
+    assert!(bounds.y0 >= -8.0 && bounds.y1 <= 0.0, "{bounds:?}");
+}
+
+fn assert_within_the_visible_area(primitive: &Primitive, margin: f64) {
+    let (bounds, _) = bounds_and_style(primitive);
+    assert!(
+        bounds.x0 >= -margin
+            && bounds.y0 >= -margin
+            && bounds.x1 <= 1920.0 + margin
+            && bounds.y1 <= 1080.0 + margin,
+        "{bounds:?}"
+    );
+}
+
+#[test]
+fn graph_reaching_far_off_the_canvas_is_cut_to_it() {
+    let mut scene = Scene::new();
+    let inverse = binary(BinaryOp::Div, real(1.0), variable_x());
+    scene.add(graph_object("1/x", inverse, -2.0, 2.0));
+    scene.add(graph_object(
+        "exp",
+        call(BuiltInFn::Exp, vec![variable_x()]),
+        0.0,
+        1000.0,
+    ));
+    let primitives = drawn(&scene);
+    assert_eq!(primitives.len(), 2);
+    assert_eq!(move_count(&primitives[0]), 2);
+    for primitive in &primitives {
+        assert_within_the_visible_area(primitive, 8.0);
+    }
+}
+
+#[test]
+fn segment_between_far_points_is_cut_to_the_canvas() {
+    let mut scene = Scene::new();
+    scene.add(segment_between((-1e6, -2e6), (1e6, 2e6)));
+    let primitives = drawn(&scene);
+    assert_eq!(primitives.len(), 1);
+    let (bounds, _) = bounds_and_style(&primitives[0]);
+    let expected = [686.0, -8.0, 1234.0, 1088.0];
+    let actual = [bounds.x0, bounds.y0, bounds.x1, bounds.y1];
+    for (a, e) in actual.iter().zip(expected) {
+        assert!((a - e).abs() < 1e-6, "{actual:?}");
+    }
+}
+
+#[test]
+fn segment_off_the_canvas_is_not_drawn() {
+    let mut scene = Scene::new();
+    scene.add(segment_between((10.0, 10.0), (20.0, 10.0)));
+    scene.add(segment_between((-10.0, -10.0), (10.0, -10.0)));
+    assert!(drawn(&scene).is_empty());
 }
 
 #[test]

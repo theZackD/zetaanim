@@ -1,6 +1,6 @@
 use glam::{DVec2, DVec3};
 use kurbo::{BezPath, Circle, Line, Rect, Shape};
-use zl_primitives::{COORDINATE_LIMIT, Color, Dash, Primitive, Stroke, Style};
+use zl_primitives::{COORDINATE_LIMIT, Color, Dash, MITER_LIMIT, Primitive, Stroke, Style};
 
 use crate::{
     Camera, Canvas, Construction, EvalContext, LineStyle, Object, ObjectStyle, ObjectValue, Value,
@@ -28,132 +28,6 @@ struct Sampler<'a> {
     margin: f64,
     pieces: Vec<Vec<DVec2>>,
     current: Vec<DVec2>,
-}
-
-fn dash(line: LineStyle, width: f64) -> Option<Dash> {
-    match line {
-        LineStyle::Solid => None,
-        LineStyle::Dashed => Some(Dash {
-            on: 4.0 * width,
-            off: 3.0 * width,
-        }),
-        LineStyle::Dotted => Some(Dash {
-            on: width,
-            off: 2.0 * width,
-        }),
-    }
-}
-
-fn stroke(style: &ObjectStyle, color: Color) -> Option<Stroke> {
-    if !(style.width > 0.0 && style.width <= COORDINATE_LIMIT) {
-        return None;
-    }
-    Some(Stroke {
-        color,
-        width: style.width,
-        dash: dash(style.line, style.width),
-    })
-}
-
-pub(crate) fn draw_layer(value: &ObjectValue, style: &ObjectStyle) -> Option<u8> {
-    match value {
-        ObjectValue::Number(_) => None,
-        ObjectValue::Circle { .. } if style.fill.is_some() => Some(0),
-        ObjectValue::Segment { .. } | ObjectValue::Circle { .. } => Some(1),
-        ObjectValue::Point(_) => Some(2),
-        ObjectValue::Curve { .. } => Some(1),
-    }
-}
-
-pub(crate) fn object_primitive(
-    object: &Object,
-    value: &ObjectValue,
-    camera: &Camera,
-    canvas: &Canvas,
-    ctx: &mut EvalContext,
-) -> Option<Primitive> {
-    let style = &object.style;
-    let scale = camera.scale()?;
-    let color = style.color.unwrap_or(canvas.foreground);
-    match value {
-        ObjectValue::Number(_) => None,
-        ObjectValue::Point(p) => {
-            let center = camera.to_canvas(*p, canvas)?;
-            if !(style.point_radius > 0.0 && style.point_radius <= COORDINATE_LIMIT) {
-                return None;
-            }
-            let path = Circle::new((center.x, center.y), style.point_radius).to_path(TOLERANCE);
-            Some(Primitive::Path {
-                path,
-                style: Style {
-                    stroke: None,
-                    fill: Some(color),
-                },
-            })
-        }
-        ObjectValue::Segment { start, end } => {
-            let s = camera.to_canvas(*start, canvas)?;
-            let e = camera.to_canvas(*end, canvas)?;
-            let stroke = stroke(style, color)?;
-            let path = Line::new((s.x, s.y), (e.x, e.y)).to_path(TOLERANCE);
-            Some(Primitive::Path {
-                path,
-                style: Style {
-                    stroke: Some(stroke),
-                    fill: None,
-                },
-            })
-        }
-
-        ObjectValue::Circle { center, radius } => {
-            let c = camera.to_canvas(*center, canvas)?;
-            let r = radius * scale;
-            if !(r > 0.0 && r <= COORDINATE_LIMIT) {
-                return None;
-            }
-            let stroke = stroke(style, color);
-            if style.fill.is_none() && stroke.is_none() {
-                return None;
-            }
-            Some(Primitive::Path {
-                path: Circle::new((c.x, c.y), r).to_path(TOLERANCE),
-                style: Style {
-                    stroke,
-                    fill: style.fill,
-                },
-            })
-        }
-
-        ObjectValue::Curve { from, to } => {
-            let stroke = stroke(style, color)?;
-            let pieces = sample_pieces(
-                &object.construction,
-                *from,
-                *to,
-                camera,
-                canvas,
-                ctx,
-                stroke.width / 2.0,
-            );
-            if pieces.is_empty() {
-                return None;
-            }
-            let mut path = BezPath::new();
-            for piece in &pieces {
-                path.move_to((piece[0].x, piece[0].y));
-                for p in &piece[1..] {
-                    path.line_to((p.x, p.y));
-                }
-            }
-            Some(Primitive::Path {
-                path,
-                style: Style {
-                    stroke: Some(stroke),
-                    fill: None,
-                },
-            })
-        }
-    }
 }
 
 impl Sampler<'_> {
@@ -231,6 +105,138 @@ impl Sampler<'_> {
 
         self.refine(a, q1, m, depth + 1);
         self.refine(m, q3, b, depth + 1);
+    }
+}
+
+fn dash(line: LineStyle, width: f64) -> Option<Dash> {
+    match line {
+        LineStyle::Solid => None,
+        LineStyle::Dashed => Some(Dash {
+            on: 4.0 * width,
+            off: 3.0 * width,
+        }),
+        LineStyle::Dotted => Some(Dash {
+            on: width,
+            off: 2.0 * width,
+        }),
+    }
+}
+
+fn stroke(style: &ObjectStyle, color: Color) -> Option<Stroke> {
+    if !(style.width > 0.0 && style.width <= COORDINATE_LIMIT) {
+        return None;
+    }
+    Some(Stroke {
+        color,
+        width: style.width,
+        dash: dash(style.line, style.width),
+    })
+}
+
+pub(crate) fn draw_layer(value: &ObjectValue, style: &ObjectStyle) -> Option<u8> {
+    match value {
+        ObjectValue::Number(_) => None,
+        ObjectValue::Circle { .. } if style.fill.is_some() => Some(0),
+        ObjectValue::Segment { .. } | ObjectValue::Circle { .. } => Some(1),
+        ObjectValue::Point(_) => Some(2),
+        ObjectValue::Curve { .. } => Some(1),
+    }
+}
+
+pub(crate) fn object_primitive(
+    object: &Object,
+    value: &ObjectValue,
+    camera: &Camera,
+    canvas: &Canvas,
+    ctx: &mut EvalContext,
+) -> Option<Primitive> {
+    let style = &object.style;
+    let scale = camera.scale()?;
+    let color = style.color.unwrap_or(canvas.foreground);
+    match value {
+        ObjectValue::Number(_) => None,
+        ObjectValue::Point(p) => {
+            let center = camera.to_canvas(*p, canvas)?;
+            if !(style.point_radius > 0.0 && style.point_radius <= COORDINATE_LIMIT) {
+                return None;
+            }
+            let path = Circle::new((center.x, center.y), style.point_radius).to_path(TOLERANCE);
+            Some(Primitive::Path {
+                path,
+                style: Style {
+                    stroke: None,
+                    fill: Some(color),
+                },
+            })
+        }
+
+        ObjectValue::Segment { start, end } => {
+            let s = camera.to_canvas(*start, canvas)?;
+            let e = camera.to_canvas(*end, canvas)?;
+            let stroke = stroke(style, color)?;
+            let (enter, exit) =
+                clip_segment(s, e, visible_area(canvas, MITER_LIMIT * stroke.width / 2.0))?;
+            let (s, e) = (s.lerp(e, enter), s.lerp(e, exit));
+            let path = Line::new((s.x, s.y), (e.x, e.y)).to_path(TOLERANCE);
+            Some(Primitive::Path {
+                path,
+                style: Style {
+                    stroke: Some(stroke),
+                    fill: None,
+                },
+            })
+        }
+
+        ObjectValue::Circle { center, radius } => {
+            let c = camera.to_canvas(*center, canvas)?;
+            let r = radius * scale;
+            if !(r > 0.0 && r <= COORDINATE_LIMIT) {
+                return None;
+            }
+            let stroke = stroke(style, color);
+            if style.fill.is_none() && stroke.is_none() {
+                return None;
+            }
+            Some(Primitive::Path {
+                path: Circle::new((c.x, c.y), r).to_path(TOLERANCE),
+                style: Style {
+                    stroke,
+                    fill: style.fill,
+                },
+            })
+        }
+
+        ObjectValue::Curve { from, to } => {
+            let stroke = stroke(style, color)?;
+            let margin = MITER_LIMIT * stroke.width / 2.0;
+            let sampled = sample_pieces(
+                &object.construction,
+                *from,
+                *to,
+                camera,
+                canvas,
+                ctx,
+                margin,
+            );
+            let pieces = clip_pieces(&sampled, visible_area(canvas, margin));
+            if pieces.is_empty() {
+                return None;
+            }
+            let mut path = BezPath::new();
+            for piece in &pieces {
+                path.move_to((piece[0].x, piece[0].y));
+                for p in &piece[1..] {
+                    path.line_to((p.x, p.y));
+                }
+            }
+            Some(Primitive::Path {
+                path,
+                style: Style {
+                    stroke: Some(stroke),
+                    fill: None,
+                },
+            })
+        }
     }
 }
 
@@ -330,6 +336,63 @@ fn visible_area(canvas: &Canvas, margin: f64) -> Rect {
         f64::from(canvas.format.width()) + margin,
         f64::from(canvas.format.height()) + margin,
     )
+}
+
+fn clip_segment(p: DVec2, q: DVec2, area: Rect) -> Option<(f64, f64)> {
+    let d = q - p;
+    let mut enter: f64 = 0.0;
+    let mut exit: f64 = 1.0;
+
+    for (direction, room) in [
+        (-d.x, p.x - area.x0),
+        (d.x, area.x1 - p.x),
+        (-d.y, p.y - area.y0),
+        (d.y, area.y1 - p.y),
+    ] {
+        if direction == 0.0 {
+            if room < 0.0 {
+                return None;
+            }
+        } else if direction < 0.0 {
+            enter = enter.max(room / direction)
+        } else {
+            exit = exit.min(room / direction)
+        }
+    }
+
+    match enter < exit {
+        true => Some((enter, exit)),
+        false => None,
+    }
+}
+
+fn clip_pieces(pieces: &[Vec<DVec2>], area: Rect) -> Vec<Vec<DVec2>> {
+    let mut clipped: Vec<Vec<DVec2>> = Vec::new();
+
+    for piece in pieces {
+        let mut current: Vec<DVec2> = Vec::new();
+        for pair in piece.windows(2) {
+            let (p, q) = (pair[0], pair[1]);
+            let Some((enter, exit)) = clip_segment(p, q, area) else {
+                continue;
+            };
+
+            let start = p.lerp(q, enter);
+            if current.last() != Some(&start) {
+                if current.len() >= 2 {
+                    clipped.push(current);
+                }
+                current = vec![start];
+            }
+            current.push(p.lerp(q, exit));
+        }
+
+        if current.len() >= 2 {
+            clipped.push(current);
+        }
+    }
+
+    clipped
 }
 
 #[cfg(test)]

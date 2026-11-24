@@ -2,7 +2,7 @@ use std::{io, path::Path};
 
 use kurbo::{BezPath, PathEl};
 use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, StrokeDash, Transform};
-use zl_primitives::{COORDINATE_LIMIT, Color, Primitive, Stroke};
+use zl_primitives::{COORDINATE_LIMIT, Color, MITER_LIMIT, Primitive, Stroke};
 
 const LIMIT: f32 = COORDINATE_LIMIT as f32;
 
@@ -141,6 +141,7 @@ fn skia_stroke(stroke: &Stroke, scale: f32) -> Option<tiny_skia::Stroke> {
     }
     let mut s = tiny_skia::Stroke {
         width,
+        miter_limit: MITER_LIMIT as f32,
         ..tiny_skia::Stroke::default()
     };
     if let Some(dash) = stroke.dash {
