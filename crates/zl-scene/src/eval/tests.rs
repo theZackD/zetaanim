@@ -475,6 +475,11 @@ fn leaves_normalize_negative_zero() {
     assert_eq!(arg_of(constant(below_axis), &ctx), pi);
     assert_eq!(arg_of(reference(1, Property::Value), &ctx), pi);
     assert_eq!(arg_of(Expr::Variable("z".to_string()), &ctx), pi);
+    ctx.time = -0.0;
+    assert_eq!(
+        call(BuiltInFn::Atan2, vec![Expr::Time, real(-1.0)]).evaluate(&ctx),
+        pi
+    );
 }
 
 #[test]

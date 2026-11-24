@@ -139,7 +139,6 @@ impl Expr {
                 y.collect_dependencies(dependencies);
                 z.collect_dependencies(dependencies);
             }
-      
         }
     }
 }

@@ -1603,3 +1603,43 @@ fn curve_variable_named_time_does_not_hide_the_timeline_time() {
     let primitives = scene.primitives(&scene.evaluate(2.0));
     assert_horizontal_line(&primitives, 825.0, 1095.0, 270.0);
 }
+
+#[test]
+fn center_and_radius_of_a_circle_are_animated_together() {
+    let mut scene = Scene::new();
+    scene.add(circle_at(0.0, 0.0, 1.0));
+    play(
+        &mut scene,
+        vec![
+            animate(0, Property::Center, at(2.0, 0.0), 2.0),
+            animate(0, Property::Radius, Value::Real(3.0), 2.0),
+        ],
+        0.0,
+    );
+    for (time, x, radius) in [(1.0, 1.0, 2.0), (2.0, 2.0, 3.0)] {
+        assert_eq!(
+            scene.evaluate(time).values.get(&ObjectId(0)),
+            Some(&ObjectValue::Circle {
+                center: DVec3::new(x, 0.0, 0.0),
+                radius
+            }),
+            "time {time}"
+        );
+    }
+}
+
+#[test]
+fn undefined_start_stays_undefined_during_and_after_the_animation() {
+    let mut scene = Scene::new();
+    scene.add(point("A", 1.0, 1.0));
+    scene.add(point_at("P", position(0)));
+    play(
+        &mut scene,
+        vec![animate(1, Property::Position, at(5.0, 5.0), 2.0)],
+        0.0,
+    );
+    scene.remove(ObjectId(0));
+    for time in [0.0, 1.0, 2.0, 10.0] {
+        assert!(defined(&scene.evaluate(time)).is_empty(), "time {time}");
+    }
+}
