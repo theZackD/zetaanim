@@ -1556,3 +1556,50 @@ fn evaluation_jumps_anywhere_and_leaves_the_scene_unchanged() {
     assert_eq!(real_value(&direct, 0), 10.0);
     assert_eq!(real_value(&scene.evaluate(4.0), 0), 5.0);
 }
+
+#[test]
+fn point_moves_with_the_timeline_time() {
+    let mut scene = Scene::new();
+    scene.add(point_at("P", vector_of(Expr::Time, real(0.0), real(0.0))));
+    assert_eq!(
+        point_value(&scene.evaluate(2.5), 0),
+        DVec3::new(2.5, 0.0, 0.0)
+    );
+    assert!(defined(&scene.evaluate(f64::NAN)).is_empty());
+}
+
+fn assert_horizontal_line(primitives: &[Primitive], left: f64, right: f64, row: f64) {
+    assert_eq!(primitives.len(), 1);
+    let (bounds, _) = bounds_and_style(&primitives[0]);
+    let expected = [left, row, right, row];
+    let actual = [bounds.x0, bounds.y0, bounds.x1, bounds.y1];
+    for (a, e) in actual.iter().zip(expected) {
+        assert!((a - e).abs() < 1e-9, "{actual:?} != {expected:?}");
+    }
+}
+
+#[test]
+fn curve_reading_the_time_is_drawn_where_the_time_puts_it() {
+    let mut scene = Scene::new();
+    scene.add(graph_object("y = time", Expr::Time, -1.0, 1.0));
+    for (time, row) in [(1.0, 405.0), (2.0, 270.0)] {
+        let primitives = scene.primitives(&scene.evaluate(time));
+        assert_horizontal_line(&primitives, 825.0, 1095.0, row);
+    }
+}
+
+#[test]
+fn curve_variable_named_time_does_not_hide_the_timeline_time() {
+    let mut scene = Scene::new();
+    scene.add(object(
+        "c",
+        Construction::Curve {
+            variable: "time".to_string(),
+            position: vector_of(Expr::Variable("time".to_string()), Expr::Time, real(0.0)),
+            from: real(-1.0),
+            to: real(1.0),
+        },
+    ));
+    let primitives = scene.primitives(&scene.evaluate(2.0));
+    assert_horizontal_line(&primitives, 825.0, 1095.0, 270.0);
+}

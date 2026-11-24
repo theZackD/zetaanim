@@ -116,7 +116,7 @@ fn finds_a_reference_to_a_later_object_in_every_position() {
     for (position, expr) in cases {
         match &expr {
             Expr::Unary { .. } | Expr::Binary { .. } | Expr::Call { .. } | Expr::Vector { .. } => {}
-            Expr::Constant(_) | Expr::Variable(_) | Expr::Reference { .. } => {
+            Expr::Constant(_) | Expr::Variable(_) | Expr::Reference { .. } | Expr::Time => {
                 panic!("{position} has no sub-expression to search")
             }
         }
@@ -183,4 +183,11 @@ fn collects_every_reference_of_a_nested_expression_in_increasing_order() {
             ObjectId(11)
         ]
     );
+}
+
+#[test]
+fn time_is_not_a_dependency() {
+    assert_eq!(Expr::Time.dependencies(), ids(&[]));
+    let moving = binary(BinaryOp::Add, Expr::Time, reference(3, Property::Value));
+    assert_eq!(moving.dependencies(), ids(&[3]));
 }

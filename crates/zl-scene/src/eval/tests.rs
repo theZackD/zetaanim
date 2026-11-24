@@ -506,3 +506,28 @@ fn user_function_call_is_undefined_until_implemented() {
     };
     assert_eq!(expr.evaluate(&ctx), None);
 }
+
+#[test]
+fn time_evaluates_to_the_timeline_time_whatever_the_bound_variables() {
+    let ctx = EvalContext {
+        time: 2.5,
+        ..EvalContext::default()
+    };
+    assert_eq!(Expr::Time.evaluate(&ctx), Some(Value::Real(2.5)));
+    let shadowing = EvalContext {
+        time: 2.5,
+        ..ctx_with(&[("time", 9.0), ("t", 9.0)])
+    };
+    assert_eq!(Expr::Time.evaluate(&shadowing), Some(Value::Real(2.5)));
+}
+
+#[test]
+fn non_finite_time_is_undefined() {
+    for time in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let ctx = EvalContext {
+            time,
+            ..EvalContext::default()
+        };
+        assert_eq!(Expr::Time.evaluate(&ctx), None, "time {time}");
+    }
+}

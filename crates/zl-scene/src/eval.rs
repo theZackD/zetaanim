@@ -63,6 +63,7 @@ impl Expr {
                 let val_z = z.evaluate(ctx)?.as_real()?;
                 Some(Value::Vector(DVec3::new(val_x, val_y, val_z)))
             }
+            Expr::Time => Value::Real(ctx.time).finite(),
         }
     }
 }

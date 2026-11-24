@@ -99,6 +99,7 @@ pub enum Expr {
         y: Box<Expr>,
         z: Box<Expr>,
     },
+    Time,
 }
 
 impl Expr {
@@ -110,7 +111,7 @@ impl Expr {
 
     fn collect_dependencies(&self, dependencies: &mut BTreeSet<ObjectId>) {
         match self {
-            Expr::Constant(_) | Expr::Variable(_) => {}
+            Expr::Constant(_) | Expr::Variable(_) | Expr::Time => {}
 
             Expr::Reference { object, .. } => {
                 dependencies.insert(*object);
@@ -138,6 +139,7 @@ impl Expr {
                 y.collect_dependencies(dependencies);
                 z.collect_dependencies(dependencies);
             }
+      
         }
     }
 }
