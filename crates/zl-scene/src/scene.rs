@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use zl_primitives::Primitive;
 
 use crate::{
-    Camera, Canvas, EvalContext, Object, ObjectId, ObjectValue, Step, Timeline,
+    Animation, Camera, Canvas, Construction, EvalContext, Expr, Object, ObjectId, ObjectValue,
+    Step, Timeline,
     draw::{LAYER_COUNT, draw_layer, object_primitive},
 };
 
@@ -99,9 +100,10 @@ impl Scene {
             time,
             ..EvalContext::default()
         };
+        let started = self.timeline.started(time);
         for id in order {
             if let Some(obj) = self.objects.get(&id)
-                && let Some(value) = obj.construction.evaluate(&ctx)
+                && let Some(value) = evaluate_object(&obj.construction, id, &started, &ctx)
             {
                 ctx.objects.insert(id, value);
             }
@@ -143,6 +145,30 @@ impl Scene {
     pub fn add_step(&mut self, step: Step) {
         self.timeline.steps.push(step);
     }
+}
+
+fn evaluate_object(
+    construction: &Construction,
+    id: ObjectId,
+    started: &[(&Animation, f64)],
+    ctx: &EvalContext,
+) -> Option<ObjectValue> {
+    if !started.iter().any(|(animation, _)| animation.object == id) {
+        return construction.evaluate(ctx);
+    };
+
+    let mut construction = construction.clone();
+    for &(animation, weight) in started {
+        if animation.object != id {
+            continue;
+        }
+        let expr = construction.property_mut(animation.property)?;
+        let current = expr.evaluate(ctx)?;
+
+        *expr = Expr::Constant(current.interpolate(&animation.to, weight)?);
+    }
+
+    construction.evaluate(ctx)
 }
 
 #[cfg(test)]

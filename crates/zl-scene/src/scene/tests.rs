@@ -7,6 +7,7 @@ use glam::DVec3;
 use kurbo::{ParamCurve, PathEl, Shape};
 use num_complex::Complex;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_3};
+use zl_math::Easing;
 use zl_primitives::{Color, Dash, Stroke, Style};
 
 fn point(name: &str, x: f64, y: f64) -> Object {
@@ -1275,4 +1276,283 @@ fn add_step_appends_to_the_timeline() {
     scene.add_step(wait.clone());
     scene.add_step(longer_wait.clone());
     assert_eq!(scene.timeline.steps, vec![wait, longer_wait]);
+}
+
+fn animate(object: u64, property: Property, to: Value, duration: f64) -> Animation {
+    Animation {
+        object: ObjectId(object),
+        property,
+        to,
+        duration,
+        delay: 0.0,
+        easing: Easing::Linear,
+    }
+}
+
+fn play(scene: &mut Scene, animations: Vec<Animation>, pause: f64) {
+    scene.add_step(Step { animations, pause });
+}
+
+fn at(x: f64, y: f64) -> Value {
+    Value::Vector(DVec3::new(x, y, 0.0))
+}
+
+#[test]
+fn animated_parameter_drives_the_objects_that_depend_on_it() {
+    let mut scene = Scene::new();
+    scene.add(number_of("alpha", real(0.0)));
+    scene.add(point_at(
+        "P",
+        vector_of(
+            call(BuiltInFn::Cos, vec![value(0)]),
+            call(BuiltInFn::Sin, vec![value(0)]),
+            real(0.0),
+        ),
+    ));
+    scene.add(point("Q", 5.0, 5.0));
+    let turn = 2.0 * std::f64::consts::PI;
+    play(
+        &mut scene,
+        vec![animate(0, Property::Value, Value::Real(turn), 4.0)],
+        0.0,
+    );
+    for (time, alpha) in [
+        (0.0, 0.0),
+        (1.0, FRAC_PI_2),
+        (2.0, turn / 2.0),
+        (4.0, turn),
+        (10.0, turn),
+    ] {
+        let evaluated = scene.evaluate(time);
+        assert_eq!(real_value(&evaluated, 0), alpha, "alpha at {time}");
+        assert_close(
+            point_value(&evaluated, 1),
+            DVec3::new(alpha.cos(), alpha.sin(), 0.0),
+        );
+        assert_eq!(point_value(&evaluated, 2), DVec3::new(5.0, 5.0, 0.0));
+    }
+}
+
+#[test]
+fn consecutive_animations_chain_from_where_the_previous_one_stopped() {
+    let mut scene = Scene::new();
+    scene.add(number_of("a", real(0.0)));
+    play(
+        &mut scene,
+        vec![animate(0, Property::Value, Value::Real(10.0), 2.0)],
+        0.0,
+    );
+    play(
+        &mut scene,
+        vec![animate(0, Property::Value, Value::Real(0.0), 2.0)],
+        0.0,
+    );
+    for (time, a) in [(1.0, 5.0), (2.0, 10.0), (3.0, 5.0), (4.0, 0.0), (9.0, 0.0)] {
+        assert_eq!(real_value(&scene.evaluate(time), 0), a, "a at {time}");
+    }
+}
+
+#[test]
+fn later_animation_wins_when_two_overlap_on_the_same_target() {
+    let mut scene = Scene::new();
+    scene.add(number_of("a", real(0.0)));
+    let later = Animation {
+        delay: 1.0,
+        ..animate(0, Property::Value, Value::Real(0.0), 2.0)
+    };
+    let earlier = animate(0, Property::Value, Value::Real(10.0), 4.0);
+    play(&mut scene, vec![later, earlier], 0.0);
+    for (time, a) in [(0.5, 1.25), (2.0, 2.5), (3.0, 0.0), (4.0, 0.0)] {
+        assert_eq!(real_value(&scene.evaluate(time), 0), a, "a at {time}");
+    }
+}
+
+#[test]
+fn animated_midpoint_follows_its_points_until_it_ends() {
+    let mut scene = Scene::new();
+    scene.add(point("A", 0.0, 0.0));
+    scene.add(point("B", 2.0, 0.0));
+    scene.add(point_at("M", midpoint(0, 1)));
+    play(
+        &mut scene,
+        vec![
+            animate(0, Property::Position, at(-2.0, 0.0), 2.0),
+            animate(2, Property::Position, at(0.0, 3.0), 2.0),
+        ],
+        0.0,
+    );
+    play(
+        &mut scene,
+        vec![animate(0, Property::Position, at(4.0, 0.0), 2.0)],
+        0.0,
+    );
+    let halfway = scene.evaluate(1.0);
+    assert_close(point_value(&halfway, 0), DVec3::new(-1.0, 0.0, 0.0));
+    assert_close(point_value(&halfway, 2), DVec3::new(0.25, 1.5, 0.0));
+    assert_eq!(
+        point_value(&scene.evaluate(2.0), 2),
+        DVec3::new(0.0, 3.0, 0.0)
+    );
+    let after = scene.evaluate(4.0);
+    assert_eq!(point_value(&after, 0), DVec3::new(4.0, 0.0, 0.0));
+    assert_eq!(point_value(&after, 2), DVec3::new(0.0, 3.0, 0.0));
+}
+
+#[test]
+fn round_trip_gives_a_midpoint_back_to_its_points() {
+    let mut scene = Scene::new();
+    scene.add(point("A", 0.0, 0.0));
+    scene.add(point("B", 2.0, 0.0));
+    scene.add(point_at("M", midpoint(0, 1)));
+    let round_trip = Animation {
+        easing: Easing::ThereAndBack,
+        ..animate(2, Property::Position, at(0.0, 3.0), 2.0)
+    };
+    play(&mut scene, vec![round_trip], 0.0);
+    play(
+        &mut scene,
+        vec![animate(0, Property::Position, at(4.0, 0.0), 2.0)],
+        0.0,
+    );
+    assert_eq!(
+        point_value(&scene.evaluate(1.0), 2),
+        DVec3::new(0.0, 3.0, 0.0)
+    );
+    assert_eq!(
+        point_value(&scene.evaluate(2.0), 2),
+        DVec3::new(1.0, 0.0, 0.0)
+    );
+    assert_eq!(
+        point_value(&scene.evaluate(4.0), 2),
+        DVec3::new(3.0, 0.0, 0.0)
+    );
+}
+
+#[test]
+fn animating_a_missing_property_makes_the_object_undefined_from_its_start() {
+    let mut scene = Scene::new();
+    scene.add(point("P", 1.0, 1.0));
+    let radius_of_a_point = Animation {
+        delay: 1.0,
+        ..animate(0, Property::Radius, Value::Real(2.0), 1.0)
+    };
+    play(&mut scene, vec![radius_of_a_point], 0.0);
+    assert_eq!(defined(&scene.evaluate(0.5)), ids(&[0]));
+    for time in [1.0, 1.5, 5.0] {
+        assert!(defined(&scene.evaluate(time)).is_empty(), "time {time}");
+    }
+}
+
+#[test]
+fn animating_a_graph_or_a_curve_makes_it_undefined() {
+    let mut scene = Scene::new();
+    scene.add(object(
+        "f",
+        Construction::Graph {
+            variable: "x".to_string(),
+            expression: Expr::Variable("x".to_string()),
+            from: real(-1.0),
+            to: real(1.0),
+        },
+    ));
+    scene.add(object(
+        "c",
+        Construction::Curve {
+            variable: "t".to_string(),
+            position: vector_of(Expr::Variable("t".to_string()), real(0.0), real(0.0)),
+            from: real(-1.0),
+            to: real(1.0),
+        },
+    ));
+    assert_eq!(defined(&scene.evaluate(0.0)), ids(&[0, 1]));
+    play(
+        &mut scene,
+        vec![
+            animate(0, Property::Value, Value::Real(2.0), 1.0),
+            animate(1, Property::Position, at(1.0, 1.0), 1.0),
+        ],
+        0.0,
+    );
+    assert!(defined(&scene.evaluate(0.5)).is_empty());
+}
+
+#[test]
+fn animating_to_a_value_of_the_wrong_kind_makes_the_object_undefined() {
+    let mut scene = Scene::new();
+    scene.add(point("P", 1.0, 1.0));
+    scene.add(number_of("a", real(2.0)));
+    scene.add(point("Q", 3.0, 3.0));
+    play(
+        &mut scene,
+        vec![
+            animate(0, Property::Position, Value::Real(3.0), 1.0),
+            animate(1, Property::Value, at(1.0, 0.0), 1.0),
+        ],
+        0.0,
+    );
+    for time in [0.0, 0.5, 1.0, 5.0] {
+        assert_eq!(defined(&scene.evaluate(time)), ids(&[2]), "time {time}");
+    }
+}
+
+#[test]
+fn radius_overshooting_below_zero_is_undefined_only_during_the_overshoot() {
+    let mut scene = Scene::new();
+    scene.add(circle_at(0.0, 0.0, 1.0));
+    let shrink = Animation {
+        easing: Easing::OutBack,
+        ..animate(0, Property::Radius, Value::Real(0.0), 1.0)
+    };
+    play(&mut scene, vec![shrink], 0.0);
+    assert_eq!(defined(&scene.evaluate(0.2)), ids(&[0]));
+    assert!(defined(&scene.evaluate(0.8)).is_empty());
+    assert_eq!(
+        scene.evaluate(1.0).values.get(&ObjectId(0)),
+        Some(&ObjectValue::Circle {
+            center: DVec3::ZERO,
+            radius: 0.0
+        })
+    );
+}
+
+#[test]
+fn animation_of_a_removed_object_is_ignored() {
+    let mut scene = Scene::new();
+    scene.add(point("P", 1.0, 1.0));
+    scene.add(point("Q", 2.0, 2.0));
+    play(
+        &mut scene,
+        vec![animate(0, Property::Position, at(5.0, 5.0), 1.0)],
+        0.0,
+    );
+    scene.remove(ObjectId(0));
+    scene.add(point("R", 3.0, 3.0));
+    let evaluated = scene.evaluate(1.0);
+    assert_eq!(defined(&evaluated), ids(&[1, 2]));
+    assert_eq!(point_value(&evaluated, 1), DVec3::new(2.0, 2.0, 0.0));
+    assert_eq!(point_value(&evaluated, 2), DVec3::new(3.0, 3.0, 0.0));
+}
+
+#[test]
+fn evaluation_jumps_anywhere_and_leaves_the_scene_unchanged() {
+    let mut scene = Scene::new();
+    scene.add(number_of("a", real(0.0)));
+    play(
+        &mut scene,
+        vec![animate(0, Property::Value, Value::Real(10.0), 2.0)],
+        1.0,
+    );
+    play(
+        &mut scene,
+        vec![animate(0, Property::Value, Value::Real(0.0), 2.0)],
+        0.0,
+    );
+    let before = scene.clone();
+    let direct = scene.evaluate(3.0);
+    scene.evaluate(7.5);
+    assert_eq!(scene.evaluate(3.0), direct);
+    assert_eq!(scene.evaluate(1.0), before.evaluate(1.0));
+    assert_eq!(scene, before);
+    assert_eq!(real_value(&direct, 0), 10.0);
+    assert_eq!(real_value(&scene.evaluate(4.0), 0), 5.0);
 }

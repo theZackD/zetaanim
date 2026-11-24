@@ -165,6 +165,30 @@ impl Construction {
             }
         }
     }
+
+    pub(crate) fn property_mut(&mut self, property: Property) -> Option<&mut Expr> {
+        match self {
+            Construction::Number { value } => match property {
+                Property::Value => Some(value),
+                _ => None,
+            },
+            Construction::Point { position } => match property {
+                Property::Position => Some(position),
+                _ => None,
+            },
+            Construction::Segment { start, end } => match property {
+                Property::Start => Some(start),
+                Property::End => Some(end),
+                _ => None,
+            },
+            Construction::Circle { center, radius } => match property {
+                Property::Center => Some(center),
+                Property::Radius => Some(radius),
+                _ => None,
+            },
+            Construction::Graph { .. } | Construction::Curve { .. } => None,
+        }
+    }
 }
 
 impl ObjectValue {
