@@ -17,7 +17,13 @@ pub fn smooth(t: f64) -> f64 {
 }
 
 pub fn ease_in_sine(t: f64) -> f64 {
-    1.0 - (PI * t / 2.0).cos()
+    if t >= 1.0 {
+        1.0
+    } else if t <= 0.0 {
+        0.0
+    } else {
+        1.0 - (PI * t / 2.0).cos()
+    }
 }
 
 pub fn ease_out_sine(t: f64) -> f64 {
@@ -89,12 +95,22 @@ pub fn ease_in_out_expo(t: f64) -> f64 {
 }
 
 pub fn ease_in_back(t: f64) -> f64 {
-    BACK_C3 * t * t * t - BACK_C1 * t * t
+    if t >= 1.0 {
+        1.0
+    } else if t <= 0.0 {
+        0.0
+    } else {
+        BACK_C3 * t * t * t - BACK_C1 * t * t
+    }
 }
 
 pub fn ease_out_back(t: f64) -> f64 {
-    let u = t - 1.0;
-    1.0 + BACK_C3 * u * u * u + BACK_C1 * u * u
+    if t <= 0.0 {
+        0.0
+    } else {
+        let u = t - 1.0;
+        1.0 + BACK_C3 * u * u * u + BACK_C1 * u * u
+    }
 }
 
 pub fn ease_in_out_back(t: f64) -> f64 {
@@ -175,6 +191,12 @@ pub fn there_and_back(t: f64) -> f64 {
 }
 
 pub fn there_and_back_with_pause(t: f64, pause_ratio: f64) -> f64 {
+    let pause_ratio = if !(pause_ratio >= 0.0 && pause_ratio < 1.0) {
+        0.0
+    } else {
+        pause_ratio
+    };
+
     let a = 2.0 / (1.0 - pause_ratio);
     if t < 0.5 - pause_ratio / 2.0 {
         smooth(a * t)
@@ -202,6 +224,9 @@ pub fn double_smooth(t: f64) -> f64 {
 }
 
 pub fn wiggle(t: f64, wiggles: f64) -> f64 {
+    if !wiggles.is_finite() {
+        return 0.0;
+    }
     there_and_back(t) * (wiggles * PI * t).sin()
 }
 

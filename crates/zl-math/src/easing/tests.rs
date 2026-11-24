@@ -52,6 +52,14 @@ const IN_OUT_PAIRS: [(Curve, Curve); 7] = [
     (ease_in_bounce, ease_out_bounce),
 ];
 
+const PAUSE_RATIOS: [f64; 4] = [0.0, 0.27, 0.5, 0.999];
+
+const INVALID_PAUSE_RATIOS: [f64; 6] = [1.0, 2.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+
+const WIGGLES: [f64; 5] = [0.0, 2.0, 2.5, -3.6, 1e6];
+
+const INVALID_WIGGLES: [f64; 3] = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+
 fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < EPS
 }
@@ -60,11 +68,106 @@ fn samples() -> impl Iterator<Item = f64> {
     (0..=100).map(|i| i as f64 / 100.0)
 }
 
+fn final_value(easing: Easing) -> f64 {
+    match easing {
+        Easing::ThereAndBack | Easing::ThereAndBackPause { .. } | Easing::Wiggle { .. } => 0.0,
+        Easing::Linear
+        | Easing::Smooth
+        | Easing::InSine
+        | Easing::OutSine
+        | Easing::InOutSine
+        | Easing::InQuad
+        | Easing::OutQuad
+        | Easing::InOutQuad
+        | Easing::InCubic
+        | Easing::OutCubic
+        | Easing::InOutCubic
+        | Easing::InExpo
+        | Easing::OutExpo
+        | Easing::InOutExpo
+        | Easing::InBack
+        | Easing::OutBack
+        | Easing::InOutBack
+        | Easing::InElastic
+        | Easing::OutElastic
+        | Easing::InOutElastic
+        | Easing::InBounce
+        | Easing::OutBounce
+        | Easing::InOutBounce
+        | Easing::RushInto
+        | Easing::RushFrom
+        | Easing::DoubleSmooth
+        | Easing::Lingering => 1.0,
+    }
+}
+
+fn all_easings() -> Vec<Easing> {
+    let mut easings = vec![
+        Easing::Linear,
+        Easing::Smooth,
+        Easing::InSine,
+        Easing::OutSine,
+        Easing::InOutSine,
+        Easing::InQuad,
+        Easing::OutQuad,
+        Easing::InOutQuad,
+        Easing::InCubic,
+        Easing::OutCubic,
+        Easing::InOutCubic,
+        Easing::InExpo,
+        Easing::OutExpo,
+        Easing::InOutExpo,
+        Easing::InBack,
+        Easing::OutBack,
+        Easing::InOutBack,
+        Easing::InElastic,
+        Easing::OutElastic,
+        Easing::InOutElastic,
+        Easing::InBounce,
+        Easing::OutBounce,
+        Easing::InOutBounce,
+        Easing::ThereAndBack,
+        Easing::RushInto,
+        Easing::RushFrom,
+        Easing::DoubleSmooth,
+        Easing::Lingering,
+    ];
+    for pause_ratio in PAUSE_RATIOS.into_iter().chain(INVALID_PAUSE_RATIOS) {
+        easings.push(Easing::ThereAndBackPause { pause_ratio });
+    }
+    for wiggles in WIGGLES.into_iter().chain(INVALID_WIGGLES) {
+        easings.push(Easing::Wiggle { wiggles });
+    }
+    easings
+}
+
 #[test]
-fn standard_bounds() {
-    for (i, f) in STANDARD.iter().enumerate() {
-        assert!(approx_eq(f(0.0), 0.0), "curve {i}: f(0) = {}", f(0.0));
-        assert!(approx_eq(f(1.0), 1.0), "curve {i}: f(1) = {}", f(1.0));
+fn every_easing_starts_and_ends_exactly() {
+    for easing in all_easings() {
+        assert_eq!(easing.apply(0.0), 0.0, "{easing:?} at 0");
+        assert_eq!(easing.apply(1.0), final_value(easing), "{easing:?} at 1");
+    }
+}
+
+#[test]
+fn invalid_pause_ratio_means_no_pause() {
+    for pause_ratio in INVALID_PAUSE_RATIOS {
+        for t in samples() {
+            assert_eq!(
+                there_and_back_with_pause(t, pause_ratio),
+                there_and_back(t),
+                "pause ratio {pause_ratio} at t = {t}"
+            );
+        }
+    }
+}
+
+#[test]
+fn invalid_wiggle_count_means_no_motion() {
+    for wiggles in INVALID_WIGGLES {
+        for t in samples() {
+            assert_eq!(wiggle(t, wiggles), 0.0, "{wiggles} wiggles at t = {t}");
+        }
     }
 }
 
