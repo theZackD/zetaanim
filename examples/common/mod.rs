@@ -24,6 +24,27 @@ pub const ORANGE: Color = Color {
     a: 255,
 };
 
+pub const GREEN: Color = Color {
+    r: 40,
+    g: 150,
+    b: 80,
+    a: 255,
+};
+
+pub const PURPLE: Color = Color {
+    r: 140,
+    g: 60,
+    b: 170,
+    a: 255,
+};
+
+pub const GRAY: Color = Color {
+    r: 170,
+    g: 170,
+    b: 170,
+    a: 255,
+};
+
 pub fn object(name: &str, construction: Construction, style: ObjectStyle) -> Object {
     Object {
         name: name.to_string(),
@@ -60,6 +81,18 @@ pub fn real(x: f64) -> Expr {
 
 pub fn vector(x: f64, y: f64, z: f64) -> Expr {
     Expr::Constant(Value::Vector(DVec3::new(x, y, z)))
+}
+
+pub fn variable(name: &str) -> Expr {
+    Expr::Variable(name.to_string())
+}
+
+pub fn number(name: &str, x: f64) -> Object {
+    object(
+        name,
+        Construction::Number { value: real(x) },
+        ObjectStyle::default(),
+    )
 }
 
 pub fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
@@ -108,11 +141,71 @@ pub fn segment(name: &str, a: ObjectId, b: ObjectId, style: ObjectStyle) -> Obje
     )
 }
 
+pub fn graph(name: &str, expression: Expr, from: f64, to: f64, style: ObjectStyle) -> Object {
+    object(
+        name,
+        Construction::Graph {
+            variable: "x".to_string(),
+            expression,
+            from: real(from),
+            to: real(to),
+        },
+        style,
+    )
+}
+
+pub fn curve(name: &str, position: Expr, from: f64, to: f64, style: ObjectStyle) -> Object {
+    object(
+        name,
+        Construction::Curve {
+            variable: "t".to_string(),
+            position,
+            from: real(from),
+            to: real(to),
+        },
+        style,
+    )
+}
+
 pub fn colored(color: Color, line: LineStyle) -> ObjectStyle {
     ObjectStyle {
         color: Some(color),
         line,
         ..ObjectStyle::default()
+    }
+}
+
+pub fn styled(color: Color, line: LineStyle, width: f64) -> ObjectStyle {
+    ObjectStyle {
+        width,
+        ..colored(color, line)
+    }
+}
+
+const TICK: f64 = 0.08;
+
+fn axis_line(scene: &mut Scene, name: &str, start: (f64, f64), end: (f64, f64), width: f64) {
+    let construction = Construction::Segment {
+        start: vector(start.0, start.1, 0.0),
+        end: vector(end.0, end.1, 0.0),
+    };
+    scene.add(object(
+        name,
+        construction,
+        styled(GRAY, LineStyle::Solid, width),
+    ));
+}
+
+pub fn axes(scene: &mut Scene, width: f64) {
+    axis_line(scene, "x axis", (-100.0, 0.0), (100.0, 0.0), width);
+    axis_line(scene, "y axis", (0.0, -100.0), (0.0, 100.0), width);
+    for k in (-7..=7).filter(|&k| k != 0) {
+        let k = f64::from(k);
+        axis_line(scene, "x tick", (k, -TICK), (k, TICK), width);
+    }
+    for k in (-4..=4).filter(|&k| k != 0) {
+        let k = f64::from(k);
+        axis_line(scene, "y tick", (-TICK, k), (TICK, k), width);
     }
 }
 
