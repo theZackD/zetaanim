@@ -90,7 +90,7 @@ impl Value {
     pub fn interpolate(&self, to: &Value, weight: f64) -> Option<Value> {
         let difference = to.sub(self)?;
         if weight == 1.0 {
-            return Some(to.clone());
+            return to.clone().finite();
         }
         self.add(&difference.mul(&Value::Real(weight))?)
     }

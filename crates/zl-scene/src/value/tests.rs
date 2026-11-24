@@ -250,6 +250,20 @@ fn interpolation_is_exact_at_both_ends() {
 }
 
 #[test]
+fn interpolation_never_ends_on_negative_zero() {
+    let pairs = [
+        (real(1.0), real(-0.0)),
+        (complex(1.0, 1.0), complex(-0.0, -0.0)),
+        (vector(1.0, 1.0, 1.0), vector(-0.0, 2.0, -0.0)),
+    ];
+    for (from, to) in pairs {
+        let end = from.interpolate(&to, 1.0).unwrap();
+        assert!(!has_negative_zero(&end), "from {from:?} to {to:?}: {end:?}");
+        assert_eq!(end, to, "from {from:?} to {to:?}");
+    }
+}
+
+#[test]
 fn interpolation_midpoints_of_each_kind() {
     let pi = std::f64::consts::PI;
     assert_eq!(real(0.0).interpolate(&real(2.0 * pi), 0.5), Some(real(pi)));
