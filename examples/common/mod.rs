@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 
-use std::{io, path::Path};
+use std::{
+    io::{self, ErrorKind},
+    path::Path,
+};
 
 use glam::DVec3;
+use zl_export::{Video, frame_count, frame_time};
 use zl_primitives::Color;
 use zl_render::render;
 use zl_scene::{
@@ -52,6 +56,24 @@ pub fn object(name: &str, construction: Construction, style: ObjectStyle) -> Obj
         construction,
         style,
     }
+}
+
+pub fn vector_of(x: Expr, y: Expr) -> Expr {
+    Expr::Vector {
+        x: Box::new(x),
+        y: Box::new(y),
+        z: Box::new(real(0.0)),
+    }
+}
+
+pub fn point_at(name: &str, x: Expr, y: Expr, style: ObjectStyle) -> Object {
+    object(
+        name,
+        Construction::Point {
+            position: vector_of(x, y),
+        },
+        style,
+    )
 }
 
 pub fn free_point(name: &str, x: f64, y: f64) -> Object {
@@ -310,6 +332,37 @@ pub fn save(scene: &Scene, file_name: &str) -> io::Result<()> {
         .join("target")
         .join(file_name);
     image.save_png(&path)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+pub fn export_video(scene: &Scene, file_name: &str, short_side: u32, fps: u32) -> io::Result<()> {
+    let canvas = scene.canvas();
+    if canvas.background.a != 255 {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "an MP4 has no transparency: the background must be opaque",
+        ));
+    }
+    let canvas_width = f64::from(canvas.format.width());
+    let canvas_height = f64::from(canvas.format.height());
+    let scale = f64::from(short_side) / canvas_width.min(canvas_height);
+    let even = |side: f64| (side * scale / 2.0).round() as u32 * 2;
+    let (width, height) = (even(canvas_width), even(canvas_height));
+    let duration = scene.duration();
+    let frames = frame_count(duration, fps);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join(file_name);
+    let mut video = Video::open(Path::new("ffmpeg"), &path, width, height, fps)?;
+    for index in 0..frames {
+        let evaluated = scene.evaluate(frame_time(index, fps, duration));
+        let primitives = scene.primitives(&evaluated);
+        let image = render(&primitives, canvas.background, width, height, scale)
+            .ok_or(io::Error::other("invalid image size"))?;
+        video.write_frame(&image.to_rgba())?;
+    }
+    video.finish()?;
     println!("{}", path.display());
     Ok(())
 }

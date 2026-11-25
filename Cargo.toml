@@ -10,6 +10,7 @@ license = "GPL-3.0-or-later"
 zl-scene = { path = "crates/zl-scene" }
 zl-render = { path = "crates/zl-render" }
 zl-primitives = { path = "crates/zl-primitives" }
+zl-export = { path = "crates/zl-export" }
 glam = { workspace = true }
 
 [workspace]

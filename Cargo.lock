@@ -215,6 +215,7 @@ name = "zetaanim"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "zl-export",
  "zl-primitives",
  "zl-render",
  "zl-scene",

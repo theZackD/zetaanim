@@ -145,6 +145,10 @@ impl Scene {
     pub fn add_step(&mut self, step: Step) {
         self.timeline.steps.push(step);
     }
+
+    pub fn duration(&self) -> f64 {
+        self.timeline.duration()
+    }
 }
 
 fn evaluate_object(

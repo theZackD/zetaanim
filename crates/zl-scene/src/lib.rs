@@ -21,3 +21,4 @@ pub use scene::*;
 pub use style::*;
 pub use timeline::*;
 pub use value::*;
+pub use zl_math::Easing;
