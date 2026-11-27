@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
 use zl_primitives::Color;
 
 pub const CANVAS_SHORT_SIDE: f64 = 1080.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CanvasFormat {
     #[default]
     Landscape,
@@ -31,7 +33,8 @@ impl CanvasFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Canvas {
     pub format: CanvasFormat,
     pub background: Color,

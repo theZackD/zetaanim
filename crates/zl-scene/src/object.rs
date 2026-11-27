@@ -4,13 +4,17 @@ use glam::DVec3;
 
 use crate::{EvalContext, Expr, ObjectId, ObjectStyle, Property, Value};
 
-#[derive(Clone, Debug, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Origin {
     Mouse,
     Script,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Construction {
     Point {
         position: Expr,
@@ -49,7 +53,8 @@ pub enum ObjectValue {
     Curve { from: f64, to: f64 },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Object {
     pub name: String,
     pub origin: Origin,

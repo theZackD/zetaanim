@@ -1,9 +1,11 @@
 use glam::DVec3;
 use num_complex::Complex;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const NEAR_REAL_TOLERANCE: f64 = 1e-10;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Value {
     Real(f64),
     Complex(Complex<f64>),

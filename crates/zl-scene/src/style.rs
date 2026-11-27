@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
 use zl_primitives::Color;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum LineStyle {
     #[default]
     Solid,
@@ -8,7 +10,8 @@ pub enum LineStyle {
     Dotted,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectStyle {
     pub color: Option<Color>,
     pub width: f64,

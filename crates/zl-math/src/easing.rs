@@ -234,6 +234,11 @@ pub fn lingering(t: f64) -> f64 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub enum Easing {
     Linear,
     Smooth,

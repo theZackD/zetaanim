@@ -1,13 +1,16 @@
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
 use crate::{ObjectId, Value};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum UnaryOp {
     Neg,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -16,7 +19,8 @@ pub enum BinaryOp {
     Pow,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum BuiltInFn {
     Sin,
     Cos,
@@ -57,7 +61,8 @@ pub enum BuiltInFn {
     Binomial,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Property {
     Value,
     Position,
@@ -67,13 +72,15 @@ pub enum Property {
     Radius,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Callee {
     BuiltIn(BuiltInFn),
     User(ObjectId),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Expr {
     Constant(Value),
     Reference {

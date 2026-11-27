@@ -1,7 +1,9 @@
 use crate::{CANVAS_SHORT_SIDE, Canvas};
 use glam::{DVec2, DVec3};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Camera {
     pub center: DVec2,
     pub extent: f64,

@@ -2,7 +2,13 @@ use kurbo::BezPath;
 
 pub const COORDINATE_LIMIT: f64 = 1e7;
 pub const MITER_LIMIT: f64 = 4.0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
 pub struct Color {
     pub r: u8,
     pub g: u8,

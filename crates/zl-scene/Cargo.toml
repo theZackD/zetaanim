@@ -5,8 +5,9 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-glam = { workspace = true }
-num-complex = { workspace = true }
+glam = { workspace = true, features = ["serde"] }
+num-complex = { workspace = true , features = ["serde"]}
 kurbo = { workspace = true }
-zl-primitives = { path = "../zl-primitives" }
-zl-math = { path = "../zl-math" }
+zl-primitives = { path = "../zl-primitives", features = ["serde"] }
+zl-math = { path = "../zl-math", features = ["serde"] }
+serde = { workspace = true }

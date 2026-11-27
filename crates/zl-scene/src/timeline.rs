@@ -1,9 +1,11 @@
 use crate::{ObjectId, Property, Value};
+use serde::{Deserialize, Serialize};
 use zl_math::{Easing, progression};
 
 const MAX_SECONDS: f64 = 86_400.0;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Animation {
     pub object: ObjectId,
     pub property: Property,
@@ -13,13 +15,15 @@ pub struct Animation {
     pub easing: Easing,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Step {
     pub animations: Vec<Animation>,
     pub pause: f64,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Timeline {
     pub steps: Vec<Step>,
 }
