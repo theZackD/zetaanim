@@ -206,7 +206,7 @@ pub fn styled(color: Color, line: LineStyle, width: f64) -> ObjectStyle {
 
 const TICK: f64 = 0.08;
 
-fn axis_line(scene: &mut Scene, name: &str, start: (f64, f64), end: (f64, f64), width: f64) {
+pub fn axis_line(scene: &mut Scene, name: &str, start: (f64, f64), end: (f64, f64), width: f64) {
     let construction = Construction::Segment {
         start: vector(start.0, start.1, 0.0),
         end: vector(end.0, end.1, 0.0),

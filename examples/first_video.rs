@@ -37,7 +37,11 @@ fn graph_axes(scene: &mut Scene) {
     guide(scene, "y axis", (GRAPH_START, -reach), (GRAPH_START, reach));
     for k in 1..=(4.0 * TURNS) as u32 {
         let x = GRAPH_START + STRETCH * f64::from(k) * FRAC_PI_2;
-        let tick = if k % 2 == 0 { LARGE_TICK } else { SMALL_TICK };
+        let tick = if k.is_multiple_of(2) {
+            LARGE_TICK
+        } else {
+            SMALL_TICK
+        };
         guide(scene, "x tick", (x, -tick), (x, tick));
     }
     for y in [-RADIUS, -RADIUS / 2.0, RADIUS / 2.0, RADIUS] {
