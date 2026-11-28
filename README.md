@@ -86,6 +86,12 @@ No prebuilt binaries are available at this stage.
 
 Feedback, bug reports and proposals are welcome through issues. A contribution guide will be published with the first working releases.
 
+## Use of AI
+
+I write ZetaAnim myself and use Claude as a reviewer and test writer to catch bugs early by exploring a wide range of cases and edge cases. I also use it to bounce around design and architecture ideas; every change is written by me, and every test is reviewed and committed by me.
+
+For contributions: reviewing your own code with an AI is fine, but please do not submit AI-generated code. Only submit code that you wrote and understand.
+
 ## License
 
 ZetaAnim is free software, licensed under the GNU General Public License, version 3 or (at your option) any later version. See [LICENSE](LICENSE) or <https://www.gnu.org/licenses/gpl-3.0.html>.

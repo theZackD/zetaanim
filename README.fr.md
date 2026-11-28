@@ -86,6 +86,12 @@ Aucun exécutable n'est encore fourni à ce stade.
 
 Les retours, les rapports de bugs et les propositions sont les bienvenus via les issues. Un guide de contribution sera publié avec les premières versions fonctionnelles.
 
+## Utilisation de l'IA
+
+J'écris ZetaAnim moi-même et j'utilise Claude pour relire le code et générer des tests afin de détecter les bugs au plus tôt en couvrant un large éventail de cas et de cas limites (_edge cases_). Je m'en sers également pour échanger sur des idées de conception et d'architecture ; chaque modification du code est écrite par mes soins, et chaque test est relu et commité par moi.
+
+Pour les contributions : relire votre propre code avec une IA ne pose aucun problème, mais merci de ne pas soumettre de code généré par IA. Envoyez uniquement du code que vous avez écrit et que vous comprenez.
+
 ## Licence
 
 ZetaAnim est un logiciel libre, distribué sous la licence publique générale GNU (GPL), version 3 ou (à votre choix) toute version ultérieure. Voir [LICENSE](LICENSE) ou <https://www.gnu.org/licenses/gpl-3.0.html>.
